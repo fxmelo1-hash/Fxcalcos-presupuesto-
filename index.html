@@ -364,6 +364,11 @@
     <!-- ===================== HISTORIAL ===================== -->
     <section class="view" id="view-historial">
       <div class="card">
+        <h2><span class="reg-mark"></span>Resumen de trabajos aceptados</h2>
+        <div class="totals-box" id="hResumenBox"></div>
+      </div>
+
+      <div class="card">
         <h2><span class="reg-mark"></span>Presupuestos generados</h2>
         <div id="hLista"><div class="empty">Todavía no generaste ningún presupuesto.</div></div>
       </div>
@@ -818,9 +823,11 @@ function buildPresupuestoPDF(){
   dashedRule();
 
   const subtotalVenta = presupuestoItems.reduce((s,i)=>s+i.subtotal,0);
+  const subtotalCosto = presupuestoItems.reduce((s,i)=>s+i.costoSubtotal,0);
   const instalacion = calcularInstalacion(subtotalVenta);
   const traslado = calcularTraslado();
   const totalVenta = subtotalVenta + instalacion + traslado;
+  const gananciaVenta = (subtotalVenta - subtotalCosto) + instalacion;
 
   line('Subtotal: $' + subtotalVenta.toFixed(2), 9, 'normal');
   if(instalacion>0) line('Instalación / colocación: $' + instalacion.toFixed(2), 9, 'normal');
@@ -961,7 +968,7 @@ function buildPresupuestoPDF(){
     '\nTotal: $' + totalVenta.toFixed(2) +
     (incluirValidez && validezDias ? ('\nVálido por ' + validezDias + ' días') : '');
 
-  return { finalDoc, nombreArchivo, cliente, proyecto, totalVenta, resumenTexto, snapshotConfig, items: JSON.parse(JSON.stringify(presupuestoItems)) };
+  return { finalDoc, nombreArchivo, cliente, proyecto, totalVenta, gananciaVenta, resumenTexto, snapshotConfig, items: JSON.parse(JSON.stringify(presupuestoItems)) };
 }
 
 function guardarHistorialActual(r){
@@ -971,9 +978,19 @@ function guardarHistorialActual(r){
     cliente: r.cliente ? r.cliente.nombre : 'Sin cliente',
     proyecto: r.proyecto,
     total: r.totalVenta,
+    ganancia: r.gananciaVenta,
+    aceptado: false,
     items: r.items,
     config: r.snapshotConfig
   });
+  saveData();
+  renderHistorial();
+}
+
+function toggleAceptado(id){
+  const h = data.historial.find(x=>x.id===id);
+  if(!h) return;
+  h.aceptado = !h.aceptado;
   saveData();
   renderHistorial();
 }
@@ -1053,15 +1070,26 @@ async function compartirWhatsapp(){
 /* ---------- historial ---------- */
 function renderHistorial(){
   const cont = document.getElementById('hLista');
+
+  const aceptados = data.historial.filter(h=>h.aceptado);
+  const ingresoTotal = aceptados.reduce((s,h)=>s+h.total,0);
+  const gananciaTotal = aceptados.reduce((s,h)=>s+(h.ganancia||0),0);
+  document.getElementById('hResumenBox').innerHTML = `
+    <div class="trow"><span>Trabajos aceptados</span><span>${aceptados.length}</span></div>
+    <div class="trow total"><span>Ingreso total</span><span>$${ingresoTotal.toFixed(2)}</span></div>
+    <div class="trow profit"><span>Ganancia total</span><span>$${gananciaTotal.toFixed(2)}</span></div>
+  `;
+
   if(data.historial.length===0){ cont.innerHTML = '<div class="empty">Todavía no generaste ningún presupuesto.</div>'; return; }
   cont.innerHTML = data.historial.map(h=>`
     <div class="list-item">
       <div class="li-main">
         <div class="name">${h.proyecto}</div>
-        <div class="sub">${h.cliente} · ${h.fecha}</div>
+        <div class="sub">${h.cliente} · ${h.fecha}${h.aceptado?' · <b style="color:#3a7a5e;">Aceptado</b>':''}</div>
       </div>
       <div class="li-price">$${h.total.toFixed(2)}</div>
       <div class="li-actions">
+        <div class="icon-btn" title="${h.aceptado?'Marcar como no aceptado':'Marcar como aceptado'}" onclick="toggleAceptado('${h.id}')" style="${h.aceptado?'color:#3a7a5e;':''}">${h.aceptado?'✓':'○'}</div>
         <div class="icon-btn" title="Usar de nuevo" onclick="reutilizarPresupuesto('${h.id}')">↻</div>
         <div class="icon-btn del" onclick="eliminarHistorial('${h.id}')">✕</div>
       </div>
