@@ -264,6 +264,8 @@
               <input type="number" id="pAncho" min="0" step="0.01" placeholder="0.00">
             </div>
           </div>
+          <label>Cantidad de piezas de ese tamaño</label>
+          <input type="number" id="pPiezas" min="1" step="1" value="1">
           <div id="pM2Calculado" class="sub" style="font-size:11.5px;color:var(--muted);margin-top:4px;">= 0.00 m²</div>
         </div>
 
@@ -590,6 +592,7 @@ document.getElementById('pMaterialSelect').addEventListener('change', e=>{
   if(esM2){
     document.getElementById('pLargo').value = '';
     document.getElementById('pAncho').value = '';
+    document.getElementById('pPiezas').value = 1;
     document.getElementById('pM2Calculado').textContent = '= 0.00 m²';
   }
 });
@@ -597,10 +600,16 @@ document.getElementById('pMaterialSelect').addEventListener('change', e=>{
 function actualizarM2Calculado(){
   const largo = parseFloat(document.getElementById('pLargo').value) || 0;
   const ancho = parseFloat(document.getElementById('pAncho').value) || 0;
-  document.getElementById('pM2Calculado').textContent = '= ' + (largo*ancho).toFixed(2) + ' m²';
+  const piezas = parseInt(document.getElementById('pPiezas').value) || 1;
+  const m2unit = largo*ancho;
+  const texto = piezas>1
+    ? '= ' + m2unit.toFixed(2) + ' m² x ' + piezas + ' piezas = ' + (m2unit*piezas).toFixed(2) + ' m²'
+    : '= ' + m2unit.toFixed(2) + ' m²';
+  document.getElementById('pM2Calculado').textContent = texto;
 }
 document.getElementById('pLargo').addEventListener('input', actualizarM2Calculado);
 document.getElementById('pAncho').addEventListener('input', actualizarM2Calculado);
+document.getElementById('pPiezas').addEventListener('input', actualizarM2Calculado);
 
 /* ---------- clientes ---------- */
 function guardarCliente(){
@@ -657,9 +666,11 @@ function addItem(){
   if(m.unidad === 'm2'){
     const largo = parseFloat(document.getElementById('pLargo').value);
     const ancho = parseFloat(document.getElementById('pAncho').value);
+    const piezas = parseInt(document.getElementById('pPiezas').value) || 1;
     if(isNaN(largo) || isNaN(ancho) || largo<=0 || ancho<=0){ toast('Ingresá largo y ancho'); return; }
-    cantidad = largo * ancho;
-    medidaTxt = largo.toFixed(2) + 'm x ' + ancho.toFixed(2) + 'm';
+    if(piezas<1){ toast('La cantidad de piezas debe ser al menos 1'); return; }
+    cantidad = largo * ancho * piezas;
+    medidaTxt = largo.toFixed(2) + 'm x ' + ancho.toFixed(2) + 'm' + (piezas>1 ? ' x ' + piezas + ' piezas' : '');
   }else{
     cantidad = parseFloat(document.getElementById('pCantidad').value);
     if(isNaN(cantidad) || cantidad<=0){ toast('Ingresá una cantidad válida'); return; }
@@ -674,6 +685,7 @@ function addItem(){
   if(m.unidad === 'm2'){
     document.getElementById('pLargo').value = '';
     document.getElementById('pAncho').value = '';
+    document.getElementById('pPiezas').value = 1;
     document.getElementById('pM2Calculado').textContent = '= 0.00 m²';
   }else{
     document.getElementById('pCantidad').value = 1;
@@ -738,6 +750,7 @@ function resetPresupuesto(){
   document.getElementById('pCantidad').value = 1;
   document.getElementById('pLargo').value = '';
   document.getElementById('pAncho').value = '';
+  document.getElementById('pPiezas').value = 1;
   document.getElementById('pM2Calculado').textContent = '= 0.00 m²';
   document.getElementById('pLargoAnchoWrap').style.display = 'none';
   document.getElementById('pCantidadSimpleWrap').style.display = 'block';
