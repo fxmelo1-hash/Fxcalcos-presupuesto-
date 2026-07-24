@@ -331,7 +331,8 @@
           <input type="number" id="mPorcentaje" min="0" step="1" placeholder="Ej: 40">
         </div>
 
-        <button class="btn" onclick="guardarMaterial()">Guardar material</button>
+        <button class="btn" id="mGuardarBtn" onclick="guardarMaterial()">Guardar material</button>
+        <button class="btn" id="mCancelarBtn" style="display:none; background:#e9e6e0; color:#171a19; margin-top:6px;" onclick="cancelarEdicionMaterial()">Cancelar edición</button>
       </div>
 
       <div class="card">
@@ -479,13 +480,15 @@ function precioVentaDe(m){
   return m.precioVenta;
 }
 
+let editingMaterialId = null;
+
 function guardarMaterial(){
   const nombre = document.getElementById('mNombre').value.trim();
   const unidad = document.getElementById('mUnidad').value;
   const costo = parseFloat(document.getElementById('mCosto').value);
   if(!nombre || isNaN(costo)){ toast('Completá nombre y costo'); return; }
 
-  let mat = { id: Date.now().toString(), nombre, unidad, costo, modo: modoPrecio };
+  let mat = { id: editingMaterialId || Date.now().toString(), nombre, unidad, costo, modo: modoPrecio };
   if(modoPrecio === 'fijo'){
     const pv = parseFloat(document.getElementById('mPrecioVenta').value);
     if(isNaN(pv)){ toast('Ingresá el precio de venta'); return; }
@@ -496,7 +499,17 @@ function guardarMaterial(){
     mat.porcentaje = pct;
   }
 
-  data.materiales.push(mat);
+  if(editingMaterialId){
+    const idx = data.materiales.findIndex(m=>m.id===editingMaterialId);
+    if(idx>-1) data.materiales[idx] = mat;
+    editingMaterialId = null;
+    document.getElementById('mGuardarBtn').textContent = 'Guardar material';
+    document.getElementById('mCancelarBtn').style.display = 'none';
+    toast('Material actualizado');
+  }else{
+    data.materiales.push(mat);
+    toast('Material guardado');
+  }
   saveData();
   document.getElementById('mNombre').value='';
   document.getElementById('mCosto').value='';
@@ -504,12 +517,40 @@ function guardarMaterial(){
   document.getElementById('mPorcentaje').value='';
   renderMateriales();
   renderMaterialSelect();
-  toast('Material guardado');
+}
+
+function editarMaterial(id){
+  const m = data.materiales.find(x=>x.id===id);
+  if(!m) return;
+  editingMaterialId = id;
+  document.getElementById('mNombre').value = m.nombre;
+  document.getElementById('mUnidad').value = m.unidad;
+  document.getElementById('mCosto').value = m.costo;
+  document.getElementById('mCostoLabel').textContent = 'Precio de costo (por ' + unidadLabel[m.unidad] + ')';
+  setModoPrecio(m.modo);
+  if(m.modo==='fijo') document.getElementById('mPrecioVenta').value = m.precioVenta;
+  else document.getElementById('mPorcentaje').value = m.porcentaje;
+  document.getElementById('mGuardarBtn').textContent = 'Actualizar material';
+  document.getElementById('mCancelarBtn').style.display = 'block';
+  document.querySelector('nav.tabs button[data-tab="materiales"]').click();
+  window.scrollTo(0,0);
+}
+
+function cancelarEdicionMaterial(){
+  editingMaterialId = null;
+  document.getElementById('mNombre').value='';
+  document.getElementById('mCosto').value='';
+  document.getElementById('mPrecioVenta').value='';
+  document.getElementById('mPorcentaje').value='';
+  document.getElementById('mGuardarBtn').textContent = 'Guardar material';
+  document.getElementById('mCancelarBtn').style.display = 'none';
 }
 
 function eliminarMaterial(id){
+  if(!confirm('¿Seguro que querés eliminar este material? Esta acción no se puede deshacer.')) return;
   data.materiales = data.materiales.filter(m=>m.id!==id);
   saveData();
+  if(editingMaterialId===id) cancelarEdicionMaterial();
   renderMateriales();
   renderMaterialSelect();
 }
@@ -526,7 +567,10 @@ function renderMateriales(){
         <div class="sub">Costo $${m.costo.toFixed(2)} / ${unidadLabel[m.unidad]} · ${modoTxt}</div>
       </div>
       <div class="li-price">$${pv.toFixed(2)}</div>
-      <div class="li-actions"><div class="icon-btn del" onclick="eliminarMaterial('${m.id}')">✕</div></div>
+      <div class="li-actions">
+        <div class="icon-btn" title="Modificar" onclick="editarMaterial('${m.id}')">✎</div>
+        <div class="icon-btn del" title="Eliminar" onclick="eliminarMaterial('${m.id}')">✕</div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -1135,6 +1179,7 @@ function reutilizarPresupuesto(id){
 }
 
 function eliminarHistorial(id){
+  if(!confirm('¿Seguro que querés eliminar este presupuesto del historial? Esta acción no se puede deshacer.')) return;
   data.historial = data.historial.filter(h=>h.id!==id);
   saveData();
   renderHistorial();
