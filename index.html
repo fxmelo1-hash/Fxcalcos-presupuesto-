@@ -385,6 +385,11 @@
     <!-- ===================== HISTORIAL ===================== -->
     <section class="view" id="view-historial">
       <div class="card">
+        <h2><span class="reg-mark"></span>Resumen de aceptados</h2>
+        <div id="hResumen"></div>
+      </div>
+
+      <div class="card">
         <h2><span class="reg-mark"></span>Presupuestos generados</h2>
         <div id="hLista"><div class="empty">Todavía no generaste ningún presupuesto.</div></div>
       </div>
@@ -640,10 +645,14 @@ function cancelarEdicionCliente(){
 }
 
 function eliminarCliente(id){
-  data.clientes = data.clientes.filter(c=>c.id!==id);
+  const c = data.clientes.find(x=>x.id===id);
+  const nombre = c ? c.nombre : 'este cliente';
+  if(!confirm('¿Eliminar a ' + nombre + '? Esta acción no se puede deshacer.')) return;
+  data.clientes = data.clientes.filter(x=>x.id!==id);
   saveData();
   renderClientes();
   renderClienteSelect();
+  toast('Cliente eliminado');
 }
 
 function renderClientes(){
@@ -1143,7 +1152,41 @@ async function compartirWhatsapp(){
 }
 
 /* ---------- historial ---------- */
+function calcularGananciaHistorial(h){
+  const items = h.items || [];
+  const subtotalVenta = items.reduce((s,i)=>s+i.subtotal,0);
+  const subtotalCosto = items.reduce((s,i)=>s+i.costoSubtotal,0);
+  const cfg = h.config || {};
+  let instalacion = 0;
+  if(cfg.colocacionValue === 'con'){
+    if(cfg.modoInstalacion === 'fijo'){
+      instalacion = parseFloat(cfg.instFijo) || 0;
+    }else{
+      instalacion = subtotalVenta * ((parseFloat(cfg.instPorcentaje)||0)/100);
+    }
+  }
+  return (subtotalVenta - subtotalCosto) + instalacion;
+}
+
+function renderResumenHistorial(){
+  const cont = document.getElementById('hResumen');
+  const aceptados = data.historial.filter(h=>h.estado==='aceptado');
+  if(aceptados.length===0){
+    cont.innerHTML = '<div class="empty">Todavía no marcaste presupuestos como aceptados.</div>';
+    return;
+  }
+  const totalAceptado = aceptados.reduce((s,h)=>s+h.total,0);
+  const gananciaTotal = aceptados.reduce((s,h)=>s+calcularGananciaHistorial(h),0);
+  cont.innerHTML = `
+    <div class="totals-box">
+      <div class="trow"><span>Presupuestos aceptados</span><span>${aceptados.length}</span></div>
+      <div class="trow total"><span>Total aceptado</span><span>$${totalAceptado.toFixed(2)}</span></div>
+      <div class="trow profit"><span>Ganancia estimada</span><span>$${gananciaTotal.toFixed(2)}</span></div>
+    </div>`;
+}
+
 function renderHistorial(){
+  renderResumenHistorial();
   const cont = document.getElementById('hLista');
   if(data.historial.length===0){ cont.innerHTML = '<div class="empty">Todavía no generaste ningún presupuesto.</div>'; return; }
   cont.innerHTML = data.historial.map(h=>{
@@ -1217,9 +1260,13 @@ function reutilizarPresupuesto(id){
 }
 
 function eliminarHistorial(id){
-  data.historial = data.historial.filter(h=>h.id!==id);
+  const h = data.historial.find(x=>x.id===id);
+  const nombre = h ? h.proyecto : 'este presupuesto';
+  if(!confirm('¿Eliminar "' + nombre + '" del historial? Esta acción no se puede deshacer.')) return;
+  data.historial = data.historial.filter(x=>x.id!==id);
   saveData();
   renderHistorial();
+  toast('Presupuesto eliminado');
 }
 
 /* ---------- etiqueta de envío ---------- */
