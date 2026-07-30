@@ -1237,7 +1237,7 @@ function generarEtiquetaEnvio(id){
   const { jsPDF } = window.jspdf;
   const W = 148, H = 105; // A6 horizontal
   const margin = 5;
-  const doc = new jsPDF({ unit:'mm', format:[W,H] });
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:[W,H] });
 
   // borde redondeado general
   doc.setDrawColor(150,150,150);
