@@ -316,6 +316,17 @@
         <div class="totals-box" id="pTotalsBox"></div>
       </div>
 
+      <div class="card">
+        <h2><span class="reg-mark"></span>Observaciones</h2>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">Elegí qué frases incluir en este presupuesto (van debajo del total, en el PDF).</p>
+        <div id="pObsLista" style="margin-bottom:12px;"></div>
+        <div class="divider-dash"></div>
+        <label id="oFormLabel">Nueva frase guardada</label>
+        <input id="oTexto" placeholder="Ej: No se inician trabajos sin comprobante de pago">
+        <button class="btn small secondary" style="width:100%;margin-top:8px;" onclick="guardarObservacion()">+ Guardar frase</button>
+        <button class="btn small" id="oCancelarBtn" style="width:100%;margin-top:8px;display:none;" onclick="cancelarEdicionObservacion()">Cancelar edición</button>
+      </div>
+
       <div class="card" id="pEditandoBanner" style="display:none;background:#eef4f2;border-color:var(--mat);">
         <h2 style="margin-bottom:6px;"><span class="reg-mark"></span>Editando presupuesto existente</h2>
         <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">Los cambios se guardan sobre este mismo presupuesto, sin crear uno nuevo.</p>
@@ -436,14 +447,17 @@ function loadData(){
     const raw = localStorage.getItem(STORE_KEY);
     if(raw) return JSON.parse(raw);
   }catch(e){}
-  return {materiales:[], clientes:[], historial:[]};
+  return {materiales:[], clientes:[], historial:[], observaciones:[]};
 }
 function saveData(){ localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
 let data = loadData();
+data.observaciones = data.observaciones || [];
 
 let presupuestoItems = [];
 let modoPrecio = 'fijo';
 let editingHistorialId = null;
+let selectedObsIds = [];
+let editingObservacionId = null;
 
 /* ---------- toast ---------- */
 function toast(msg){
@@ -735,7 +749,81 @@ function renderClienteSelect(){
     data.clientes.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
 }
 
-/* ---------- ítems del presupuesto ---------- */
+/* ---------- observaciones ---------- */
+function guardarObservacion(){
+  const texto = document.getElementById('oTexto').value.trim();
+  if(!texto){ toast('Escribí el texto de la frase'); return; }
+
+  if(editingObservacionId){
+    const idx = data.observaciones.findIndex(o=>o.id===editingObservacionId);
+    if(idx>-1) data.observaciones[idx].texto = texto;
+    toast('Frase actualizada');
+  }else{
+    data.observaciones.push({ id: Date.now().toString(), texto });
+    toast('Frase guardada');
+  }
+
+  saveData();
+  cancelarEdicionObservacion();
+  renderObservaciones();
+}
+
+function editarObservacion(id){
+  const o = data.observaciones.find(x=>x.id===id);
+  if(!o) return;
+  editingObservacionId = id;
+  document.getElementById('oTexto').value = o.texto;
+  document.getElementById('oFormLabel').textContent = 'Editando frase';
+  document.getElementById('oCancelarBtn').style.display = 'block';
+}
+
+function cancelarEdicionObservacion(){
+  editingObservacionId = null;
+  document.getElementById('oTexto').value = '';
+  document.getElementById('oFormLabel').textContent = 'Nueva frase guardada';
+  document.getElementById('oCancelarBtn').style.display = 'none';
+}
+
+function eliminarObservacion(id){
+  const o = data.observaciones.find(x=>x.id===id);
+  const texto = o ? o.texto : 'esta frase';
+  if(!confirm('¿Eliminar la frase "' + texto + '"? Esta acción no se puede deshacer.')) return;
+  data.observaciones = data.observaciones.filter(x=>x.id!==id);
+  selectedObsIds = selectedObsIds.filter(x=>x!==id);
+  saveData();
+  renderObservaciones();
+  toast('Frase eliminada');
+}
+
+function toggleObservacionSeleccionada(id, checked){
+  if(checked){
+    if(!selectedObsIds.includes(id)) selectedObsIds.push(id);
+  }else{
+    selectedObsIds = selectedObsIds.filter(x=>x!==id);
+  }
+}
+
+function renderObservaciones(){
+  const cont = document.getElementById('pObsLista');
+  if(data.observaciones.length===0){
+    cont.innerHTML = '<div class="empty">Todavía no guardaste frases. Agregá una abajo.</div>';
+    return;
+  }
+  cont.innerHTML = data.observaciones.map(o=>`
+    <div class="list-item">
+      <div class="check-row" style="flex:1;margin:0;">
+        <input type="checkbox" id="obs_${o.id}" ${selectedObsIds.includes(o.id)?'checked':''}
+          onchange="toggleObservacionSeleccionada('${o.id}', this.checked)">
+        <label for="obs_${o.id}" style="font-size:13px;font-weight:400;">${o.texto}</label>
+      </div>
+      <div class="li-actions">
+        <div class="icon-btn" title="Editar" onclick="editarObservacion('${o.id}')">✎</div>
+        <div class="icon-btn del" onclick="eliminarObservacion('${o.id}')">✕</div>
+      </div>
+    </div>`).join('');
+}
+
+
 function addItem(){
   const matId = document.getElementById('pMaterialSelect').value;
   if(!matId){ toast('Elegí un material'); return; }
@@ -861,6 +949,8 @@ function resetPresupuesto(){
   document.getElementById('pInstFijo').value = 0;
   setModoInstalacion('pct');
   toggleInstalacionCard();
+  selectedObsIds = [];
+  renderObservaciones();
   renderItems();
 }
 
@@ -902,6 +992,8 @@ function buildPresupuestoPDF(){
   const tipoTrabajo = colocacionValue === 'con' ? 'Con colocación' : 'Sin colocación';
   const fecha = new Date().toLocaleDateString('es-UY');
 
+  const obsTextos = data.observaciones.filter(o=>selectedObsIds.includes(o.id)).map(o=>o.texto);
+
   const snapshotConfig = {
     clienteId,
     proyecto,
@@ -913,7 +1005,9 @@ function buildPresupuestoPDF(){
     instFijo: document.getElementById('pInstFijo').value,
     trasladoFijo: document.getElementById('pTrasladoFijo').value,
     trasladoKm: document.getElementById('pTrasladoKm').value,
-    trasladoTarifaKm: document.getElementById('pTrasladoTarifaKm').value
+    trasladoTarifaKm: document.getElementById('pTrasladoTarifaKm').value,
+    obsIds: [...selectedObsIds],
+    obsTextos
   };
 
   function line(txt, size, style, color, gap){
@@ -1003,6 +1097,16 @@ function buildPresupuestoPDF(){
   doc.text('TOTAL', marginMM, y);
   doc.text('$'+totalVenta.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
   y += 10;
+
+  if(obsTextos.length>0){
+    doc.setFont('helvetica','italic');
+    doc.setFontSize(8.5);
+    doc.setTextColor(70,70,70);
+    obsTextos.forEach(txt=>{
+      line('• ' + txt, 8.5, 'italic', [70,70,70], 2);
+    });
+    y += 2;
+  }
 
   dashedRule();
 
@@ -1106,6 +1210,13 @@ function buildPresupuestoPDF(){
   finalDoc.text('$'+totalVenta.toFixed(2), pageWidthMM-marginMM, y2, {align:'right'});
   y2 += 10;
 
+  if(obsTextos.length>0){
+    obsTextos.forEach(txt=>{
+      line2('• ' + txt, 8.5, 'italic', [70,70,70], 2);
+    });
+    y2 += 2;
+  }
+
   dashedRule2();
 
   finalDoc.setFont('helvetica','bold');
@@ -1150,7 +1261,9 @@ function guardarCambiosPresupuesto(){
     instFijo: document.getElementById('pInstFijo').value,
     trasladoFijo: document.getElementById('pTrasladoFijo').value,
     trasladoKm: document.getElementById('pTrasladoKm').value,
-    trasladoTarifaKm: document.getElementById('pTrasladoTarifaKm').value
+    trasladoTarifaKm: document.getElementById('pTrasladoTarifaKm').value,
+    obsIds: [...selectedObsIds],
+    obsTextos: data.observaciones.filter(o=>selectedObsIds.includes(o.id)).map(o=>o.texto)
   };
 
   const subtotalVenta = presupuestoItems.reduce((s,i)=>s+i.subtotal,0);
@@ -1362,6 +1475,10 @@ function reutilizarPresupuesto(id){
   document.getElementById('pTrasladoKm').value = cfg.trasladoKm || 0;
   document.getElementById('pTrasladoTarifaKm').value = cfg.trasladoTarifaKm || 0;
 
+  // observaciones: sólo las que todavía existen como frase guardada
+  selectedObsIds = (cfg.obsIds || []).filter(oid => data.observaciones.some(o=>o.id===oid));
+  renderObservaciones();
+
   renderItems();
 
   // saltamos a la pestaña Presupuesto
@@ -1450,24 +1567,24 @@ function generarEtiquetaEnvio(id){
 
   y += 8;
   doc.setFont('helvetica','bold');
-  doc.setFontSize(9);
+  doc.setFontSize(10.5);
   doc.setTextColor(68,68,68);
   doc.text('Tel:', barW+4, y);
   doc.setFont('helvetica','normal');
-  doc.setFontSize(11.5);
+  doc.setFontSize(14);
   doc.setTextColor(23,26,25);
-  doc.text(telDest || '—', barW+11, y);
+  doc.text(telDest || '—', barW+12, y);
   doc.setFont('helvetica','bold');
-  doc.setFontSize(9);
+  doc.setFontSize(10.5);
   doc.setTextColor(68,68,68);
-  doc.text('C.I.:', barW+42, y);
+  doc.text('C.I.:', barW+44, y);
   doc.setFont('helvetica','normal');
-  doc.setFontSize(11.5);
+  doc.setFontSize(14);
   doc.setTextColor(23,26,25);
-  doc.text(ciDest || '—', barW+50, y);
+  doc.text(ciDest || '—', barW+54, y);
 
   // ---------- QR de WhatsApp, en el espacio vacío de la derecha ----------
-  const qrSize = 20;
+  const qrSize = 25;
   const qrX = W - margin - qrSize;
   const qrY = headerH + 6;
   doc.addImage(QR_WHATSAPP_DATA_URL, 'PNG', qrX, qrY, qrSize, qrSize);
@@ -1481,8 +1598,8 @@ function generarEtiquetaEnvio(id){
   doc.text('por WhatsApp', qrX+qrSize/2, qrY+qrSize+7, {align:'center'});
 
   // ---------- footer: caja con Rte. | Origen ----------
-  const footH = 17;
-  const footY = H - footH - 3;
+  const footH = 15;
+  const footY = H - footH - 7;
   doc.setFillColor(238,240,238);
   doc.roundedRect(barW+3, footY, W-barW-3-margin, footH, 1.5, 1.5, 'F');
 
@@ -1507,6 +1624,11 @@ function generarEtiquetaEnvio(id){
   doc.setFont('helvetica','italic');
   doc.setFontSize(8);
   doc.text('Pan de Azúcar, Maldonado', midX+4, ty+6);
+
+  doc.setFont('helvetica','italic');
+  doc.setFontSize(7.5);
+  doc.setTextColor(107,115,112);
+  doc.text('Confía tus pasos al Señor y él iluminará tu camino', W/2, footY+footH+4.5, {align:'center'});
 
   const nombreArchivo = 'Etiqueta_' + nombreDest.replace(/\s+/g,'_') + '_' + Date.now() + '.pdf';
   guardarOAbrirPDF(doc, nombreArchivo);
@@ -1587,6 +1709,7 @@ renderClientes();
 renderClienteSelect();
 renderItems();
 renderHistorial();
+renderObservaciones();
 
 /* ---------- registro del service worker (offline + instalación) ---------- */
 if('serviceWorker' in navigator){
