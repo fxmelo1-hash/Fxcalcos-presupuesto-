@@ -320,7 +320,7 @@
     <!-- ===================== MATERIALES ===================== -->
     <section class="view" id="view-materiales">
       <div class="card">
-        <h2><span class="reg-mark"></span><span id="mFormTitle">Nuevo material</span></h2>
+        <h2><span class="reg-mark"></span>Nuevo material</h2>
         <label>Nombre</label>
         <input id="mNombre" placeholder="Ej: Vinilo blanco brillante">
 
@@ -349,8 +349,7 @@
           <input type="number" id="mPorcentaje" min="0" step="1" placeholder="Ej: 40">
         </div>
 
-        <button class="btn" id="mGuardarBtn" onclick="guardarMaterial()">Guardar material</button>
-        <button class="btn secondary" id="mCancelarBtn" style="display:none;" onclick="cancelarEdicionMaterial()">Cancelar edición</button>
+        <button class="btn" onclick="guardarMaterial()">Guardar material</button>
       </div>
 
       <div class="card">
@@ -385,11 +384,6 @@
 
     <!-- ===================== HISTORIAL ===================== -->
     <section class="view" id="view-historial">
-      <div class="card">
-        <h2><span class="reg-mark"></span>Resumen de aceptados</h2>
-        <div id="hResumen"></div>
-      </div>
-
       <div class="card">
         <h2><span class="reg-mark"></span>Presupuestos generados</h2>
         <div id="hLista"><div class="empty">Todavía no generaste ningún presupuesto.</div></div>
@@ -503,15 +497,13 @@ function precioVentaDe(m){
   return m.precioVenta;
 }
 
-let editandoMaterialId = null;
-
 function guardarMaterial(){
   const nombre = document.getElementById('mNombre').value.trim();
   const unidad = document.getElementById('mUnidad').value;
   const costo = parseFloat(document.getElementById('mCosto').value);
   if(!nombre || isNaN(costo)){ toast('Completá nombre y costo'); return; }
 
-  let mat = { nombre, unidad, costo, modo: modoPrecio };
+  let mat = { id: Date.now().toString(), nombre, unidad, costo, modo: modoPrecio };
   if(modoPrecio === 'fijo'){
     const pv = parseFloat(document.getElementById('mPrecioVenta').value);
     if(isNaN(pv)){ toast('Ingresá el precio de venta'); return; }
@@ -522,61 +514,22 @@ function guardarMaterial(){
     mat.porcentaje = pct;
   }
 
-  if(editandoMaterialId){
-    const idx = data.materiales.findIndex(m=>m.id===editandoMaterialId);
-    if(idx>-1) data.materiales[idx] = { id: editandoMaterialId, ...mat };
-    toast('Material actualizado');
-  }else{
-    data.materiales.push({ id: Date.now().toString(), ...mat });
-    toast('Material guardado');
-  }
-
+  data.materiales.push(mat);
   saveData();
-  cancelarEdicionMaterial();
-  renderMateriales();
-  renderMaterialSelect();
-}
-
-function editarMaterial(id){
-  const m = data.materiales.find(x=>x.id===id);
-  if(!m) return;
-  editandoMaterialId = id;
-  document.getElementById('mNombre').value = m.nombre || '';
-  document.getElementById('mUnidad').value = m.unidad || 'm2';
-  document.getElementById('mCostoLabel').textContent = 'Precio de costo (por ' + unidadLabel[m.unidad] + ')';
-  document.getElementById('mCosto').value = m.costo;
-  setModoPrecio(m.modo === 'pct' ? 'pct' : 'fijo');
-  document.getElementById('mPrecioVenta').value = m.modo === 'pct' ? '' : (m.precioVenta ?? '');
-  document.getElementById('mPorcentaje').value = m.modo === 'pct' ? (m.porcentaje ?? '') : '';
-  document.getElementById('mFormTitle').textContent = 'Editando material';
-  document.getElementById('mGuardarBtn').textContent = 'Guardar cambios';
-  document.getElementById('mCancelarBtn').style.display = 'block';
-  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  document.querySelector('nav.tabs button[data-tab="materiales"]').classList.add('active');
-  document.getElementById('view-materiales').classList.add('active');
-}
-
-function cancelarEdicionMaterial(){
-  editandoMaterialId = null;
   document.getElementById('mNombre').value='';
   document.getElementById('mCosto').value='';
   document.getElementById('mPrecioVenta').value='';
   document.getElementById('mPorcentaje').value='';
-  document.getElementById('mFormTitle').textContent = 'Nuevo material';
-  document.getElementById('mGuardarBtn').textContent = 'Guardar material';
-  document.getElementById('mCancelarBtn').style.display = 'none';
+  renderMateriales();
+  renderMaterialSelect();
+  toast('Material guardado');
 }
 
 function eliminarMaterial(id){
-  const m = data.materiales.find(x=>x.id===id);
-  const nombre = m ? m.nombre : 'este material';
-  if(!confirm('¿Eliminar "' + nombre + '"? Esta acción no se puede deshacer.')) return;
-  data.materiales = data.materiales.filter(x=>x.id!==id);
+  data.materiales = data.materiales.filter(m=>m.id!==id);
   saveData();
   renderMateriales();
   renderMaterialSelect();
-  toast('Material eliminado');
 }
 
 function renderMateriales(){
@@ -591,10 +544,7 @@ function renderMateriales(){
         <div class="sub">Costo $${m.costo.toFixed(2)} / ${unidadLabel[m.unidad]} · ${modoTxt}</div>
       </div>
       <div class="li-price">$${pv.toFixed(2)}</div>
-      <div class="li-actions">
-        <div class="icon-btn" title="Editar" onclick="editarMaterial('${m.id}')">✎</div>
-        <div class="icon-btn del" onclick="eliminarMaterial('${m.id}')">✕</div>
-      </div>
+      <div class="li-actions"><div class="icon-btn del" onclick="eliminarMaterial('${m.id}')">✕</div></div>
     </div>`;
   }).join('');
 }
@@ -690,14 +640,10 @@ function cancelarEdicionCliente(){
 }
 
 function eliminarCliente(id){
-  const c = data.clientes.find(x=>x.id===id);
-  const nombre = c ? c.nombre : 'este cliente';
-  if(!confirm('¿Eliminar a ' + nombre + '? Esta acción no se puede deshacer.')) return;
-  data.clientes = data.clientes.filter(x=>x.id!==id);
+  data.clientes = data.clientes.filter(c=>c.id!==id);
   saveData();
   renderClientes();
   renderClienteSelect();
-  toast('Cliente eliminado');
 }
 
 function renderClientes(){
@@ -1197,41 +1143,7 @@ async function compartirWhatsapp(){
 }
 
 /* ---------- historial ---------- */
-function calcularGananciaHistorial(h){
-  const items = h.items || [];
-  const subtotalVenta = items.reduce((s,i)=>s+i.subtotal,0);
-  const subtotalCosto = items.reduce((s,i)=>s+i.costoSubtotal,0);
-  const cfg = h.config || {};
-  let instalacion = 0;
-  if(cfg.colocacionValue === 'con'){
-    if(cfg.modoInstalacion === 'fijo'){
-      instalacion = parseFloat(cfg.instFijo) || 0;
-    }else{
-      instalacion = subtotalVenta * ((parseFloat(cfg.instPorcentaje)||0)/100);
-    }
-  }
-  return (subtotalVenta - subtotalCosto) + instalacion;
-}
-
-function renderResumenHistorial(){
-  const cont = document.getElementById('hResumen');
-  const aceptados = data.historial.filter(h=>h.estado==='aceptado');
-  if(aceptados.length===0){
-    cont.innerHTML = '<div class="empty">Todavía no marcaste presupuestos como aceptados.</div>';
-    return;
-  }
-  const totalAceptado = aceptados.reduce((s,h)=>s+h.total,0);
-  const gananciaTotal = aceptados.reduce((s,h)=>s+calcularGananciaHistorial(h),0);
-  cont.innerHTML = `
-    <div class="totals-box">
-      <div class="trow"><span>Presupuestos aceptados</span><span>${aceptados.length}</span></div>
-      <div class="trow total"><span>Total aceptado</span><span>$${totalAceptado.toFixed(2)}</span></div>
-      <div class="trow profit"><span>Ganancia estimada</span><span>$${gananciaTotal.toFixed(2)}</span></div>
-    </div>`;
-}
-
 function renderHistorial(){
-  renderResumenHistorial();
   const cont = document.getElementById('hLista');
   if(data.historial.length===0){ cont.innerHTML = '<div class="empty">Todavía no generaste ningún presupuesto.</div>'; return; }
   cont.innerHTML = data.historial.map(h=>{
@@ -1305,13 +1217,9 @@ function reutilizarPresupuesto(id){
 }
 
 function eliminarHistorial(id){
-  const h = data.historial.find(x=>x.id===id);
-  const nombre = h ? h.proyecto : 'este presupuesto';
-  if(!confirm('¿Eliminar "' + nombre + '" del historial? Esta acción no se puede deshacer.')) return;
-  data.historial = data.historial.filter(x=>x.id!==id);
+  data.historial = data.historial.filter(h=>h.id!==id);
   saveData();
   renderHistorial();
-  toast('Presupuesto eliminado');
 }
 
 /* ---------- etiqueta de envío ---------- */
