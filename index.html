@@ -425,6 +425,15 @@
       </div>
 
       <div class="card">
+        <h2><span class="reg-mark"></span>Archivo (trabajos cerrados)</h2>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">
+          Buscá por nombre de cliente para duplicar un trabajo ya archivado y arrancar una venta nueva.
+        </p>
+        <input id="aBuscarCliente" placeholder="Nombre del cliente..." oninput="renderArchivo()">
+        <div id="aLista" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card">
         <h2><span class="reg-mark"></span>Respaldo de datos</h2>
         <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">
           Exportá un archivo con todos tus materiales, clientes e historial para guardarlo o pasarlo a otro celular.
@@ -472,6 +481,16 @@
         <h2><span class="reg-mark"></span>Pendientes de cobro</h2>
         <div id="finPendientes"></div>
       </div>
+
+      <div class="card">
+        <h2><span class="reg-mark"></span>Cerrar período</h2>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">
+          Archiva los presupuestos <strong>aceptados y cobrados al 100%</strong> del período elegido arriba.
+          Antes de archivarlos se genera un PDF con el detalle, como respaldo. No se borra nada — quedan
+          buscables por cliente en "Archivo" (pestaña Historial) para duplicarlos si hace falta repetir la venta.
+        </p>
+        <button class="btn secondary" onclick="cerrarPeriodo()">📦 Cerrar período y archivar cobrados</button>
+      </div>
     </section>
 
   </main>
@@ -492,11 +511,12 @@ function loadData(){
     const raw = localStorage.getItem(STORE_KEY);
     if(raw) return JSON.parse(raw);
   }catch(e){}
-  return {materiales:[], clientes:[], historial:[], observaciones:[]};
+  return {materiales:[], clientes:[], historial:[], observaciones:[], archivo:[]};
 }
 function saveData(){ localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
 let data = loadData();
 data.observaciones = data.observaciones || [];
+data.archivo = data.archivo || [];
 
 let presupuestoItems = [];
 let modoPrecio = 'fijo';
@@ -1665,6 +1685,122 @@ function renderFinanzas(){
   }
 }
 
+/* ---------- cierre de período ---------- */
+const PERIODO_LABELS = { mes:'Este mes', mesAnterior:'Mes anterior', anio:'Este año', todo:'Todo' };
+
+function cerrarPeriodo(){
+  const periodo = document.getElementById('finPeriodo').value;
+  const { inicio, fin } = getRangoPeriodo(periodo);
+
+  const candidatos = data.historial.filter(h=>{
+    if(h.estado !== 'aceptado') return false;
+    if(calcularSaldo(h) > 0.005) return false;
+    const f = parseFechaUY(h.fecha);
+    return f>=inicio && f<=fin;
+  });
+
+  if(candidatos.length===0){
+    toast('No hay presupuestos cobrados al 100% en este período');
+    return;
+  }
+
+  const totalMonto = candidatos.reduce((s,h)=>s+h.total,0);
+  const totalGanancia = candidatos.reduce((s,h)=>s+calcularGananciaHistorial(h),0);
+
+  const ok = confirm(
+    '¿Archivar ' + candidatos.length + ' presupuesto(s) cobrado(s) al 100%, por un total de $' + totalMonto.toFixed(2) + '?\n\n' +
+    'Se genera primero un PDF de respaldo con el detalle. Los datos no se borran: quedan disponibles en "Archivo" (pestaña Historial) para buscarlos por cliente y duplicarlos.'
+  );
+  if(!ok) return;
+
+  generarPDFCierrePeriodo(candidatos, PERIODO_LABELS[periodo] || periodo, totalMonto, totalGanancia);
+
+  const idsArchivar = new Set(candidatos.map(h=>h.id));
+  candidatos.forEach(h=>{ h.archivadoEl = new Date().toLocaleDateString('es-UY'); });
+  data.archivo = (data.archivo||[]).concat(candidatos);
+  data.historial = data.historial.filter(h=>!idsArchivar.has(h.id));
+
+  saveData();
+  renderHistorial();
+  renderArchivo();
+  toast(candidatos.length + ' presupuesto(s) archivado(s)');
+}
+
+function generarPDFCierrePeriodo(candidatos, periodoLabel, totalMonto, totalGanancia){
+  if(!window.jspdf){ toast('No se pudo cargar el generador de PDF. Revisá tu conexión a internet.'); return; }
+  const { jsPDF } = window.jspdf;
+  const pageWidthMM = 90;
+  const marginMM = 6;
+  const contentWidth = pageWidthMM - marginMM*2;
+
+  function dibujar(doc, alturaFinal){
+    let y = 10;
+    doc.setFillColor(32,66,63);
+    doc.rect(0,0,pageWidthMM,20,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(14);
+    doc.text('FX Calcos', marginMM, 12);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8);
+    doc.text('Cierre de período — ' + periodoLabel, marginMM, 17);
+    y = 27;
+
+    doc.setTextColor(23,26,25);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(9);
+    doc.text('Fecha de cierre: ' + new Date().toLocaleDateString('es-UY'), marginMM, y);
+    y += 7;
+
+    doc.setDrawColor(200,200,195);
+    doc.setLineDashPattern([1,1],0);
+    doc.line(marginMM, y, pageWidthMM-marginMM, y);
+    doc.setLineDashPattern([],0);
+    y += 6;
+
+    candidatos.forEach(h=>{
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(9);
+      const nombreLinea = doc.splitTextToSize(h.proyecto + ' — ' + h.cliente, contentWidth);
+      doc.text(nombreLinea, marginMM, y);
+      y += nombreLinea.length*3.6;
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(107,115,112);
+      doc.text('Fecha: ' + h.fecha, marginMM, y);
+      doc.text('$' + h.total.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+      y += 6;
+      doc.setTextColor(23,26,25);
+    });
+
+    doc.setDrawColor(32,66,63);
+    doc.setLineWidth(0.6);
+    doc.line(marginMM, y, pageWidthMM-marginMM, y);
+    y += 6;
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(11);
+    doc.setTextColor(18,50,48);
+    doc.text('Total cobrado', marginMM, y);
+    doc.text('$'+totalMonto.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+    y += 6;
+    doc.setFontSize(9);
+    doc.text('Ganancia', marginMM, y);
+    doc.text('$'+totalGanancia.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+    y += 8;
+
+    return y;
+  }
+
+  const medidor = new jsPDF({ unit:'mm', format:[pageWidthMM, 1000] });
+  const alturaFinal = dibujar(medidor, 0);
+
+  const finalDoc = new jsPDF({ unit:'mm', format:[pageWidthMM, alturaFinal] });
+  dibujar(finalDoc, alturaFinal);
+
+  const nombreArchivo = 'Cierre_' + periodoLabel.replace(/\s+/g,'_') + '_' + Date.now() + '.pdf';
+  guardarOAbrirPDF(finalDoc, nombreArchivo);
+}
+
 function reutilizarPresupuesto(id){
   const h = data.historial.find(x=>x.id===id);
   if(!h) return;
@@ -1872,6 +2008,82 @@ function descargarArchivoTexto(contenido, nombreArchivo, mime){
   setTimeout(()=>URL.revokeObjectURL(url), 60000);
 }
 
+/* ---------- archivo (trabajos cerrados) ---------- */
+function renderArchivo(){
+  const cont = document.getElementById('aLista');
+  if(!cont) return;
+  const q = (document.getElementById('aBuscarCliente').value || '').trim().toLowerCase();
+
+  if(data.archivo.length===0){
+    cont.innerHTML = '<div class="empty">Todavía no cerraste ningún período.</div>';
+    return;
+  }
+
+  const resultados = q
+    ? data.archivo.filter(h=>h.cliente.toLowerCase().includes(q))
+    : data.archivo;
+
+  if(resultados.length===0){
+    cont.innerHTML = '<div class="empty">No hay trabajos archivados de ese cliente.</div>';
+    return;
+  }
+
+  cont.innerHTML = resultados
+    .slice().sort((a,b)=>parseFechaUY(b.fecha)-parseFechaUY(a.fecha))
+    .map(h=>`
+    <div class="list-item">
+      <div class="li-main">
+        <div class="name">${h.proyecto}</div>
+        <div class="sub">${h.cliente} · ${h.fecha}</div>
+      </div>
+      <div class="li-price">$${h.total.toFixed(2)}</div>
+      <div class="li-actions">
+        <div class="icon-btn" title="Duplicar como venta nueva" onclick="duplicarDesdeArchivo('${h.id}')">↻</div>
+      </div>
+    </div>`).join('');
+}
+
+function duplicarDesdeArchivo(id){
+  const h = data.archivo.find(x=>x.id===id);
+  if(!h) return;
+
+  presupuestoItems = JSON.parse(JSON.stringify(h.items));
+  editingHistorialId = null; // es una venta nueva, no una edición
+  document.getElementById('pEditandoBanner').style.display = 'none';
+
+  const cfg = h.config || {};
+  document.getElementById('pProyecto').value = h.proyecto === 'Sin especificar' ? '' : h.proyecto;
+
+  const clienteExiste = cfg.clienteId && data.clientes.some(c=>c.id===cfg.clienteId);
+  document.getElementById('pClienteSelect').value = clienteExiste ? cfg.clienteId : '';
+
+  document.getElementById('pValidezCheck').checked = cfg.incluirValidez !== false;
+  document.getElementById('pValidezRow').style.display = document.getElementById('pValidezCheck').checked ? 'flex' : 'none';
+  document.getElementById('pValidezDias').value = cfg.validezDias || 15;
+
+  document.getElementById('pColocacion').value = cfg.colocacionValue || 'con';
+  toggleInstalacionCard();
+  setModoInstalacion(cfg.modoInstalacion || 'pct');
+  document.getElementById('pInstPorcentaje').value = cfg.instPorcentaje || 30;
+  document.getElementById('pInstFijo').value = cfg.instFijo || 0;
+
+  document.getElementById('pTrasladoFijo').value = cfg.trasladoFijo || 0;
+  document.getElementById('pTrasladoKm').value = cfg.trasladoKm || 0;
+  document.getElementById('pTrasladoTarifaKm').value = cfg.trasladoTarifaKm || 0;
+
+  selectedObsIds = (cfg.obsIds || []).filter(oid => data.observaciones.some(o=>o.id===oid));
+  renderObservaciones();
+
+  renderItems();
+
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelector('nav.tabs button[data-tab="presupuesto"]').classList.add('active');
+  document.getElementById('view-presupuesto').classList.add('active');
+
+  toast('Trabajo duplicado — es una venta nueva, revisá los datos y generá el PDF');
+}
+
 function exportarDatos(){
   const fecha = new Date().toISOString().slice(0,10);
   const contenido = JSON.stringify(data, null, 2);
@@ -1906,6 +2118,8 @@ function importarDatos(file){
     data.materiales = fusionar(data.materiales, nuevo.materiales);
     data.clientes = fusionar(data.clientes, nuevo.clientes);
     data.historial = fusionar(data.historial, nuevo.historial);
+    data.archivo = fusionar(data.archivo, nuevo.archivo);
+    data.observaciones = fusionar(data.observaciones, nuevo.observaciones);
     saveData();
 
     renderMateriales();
@@ -1913,6 +2127,8 @@ function importarDatos(file){
     renderClientes();
     renderClienteSelect();
     renderHistorial();
+    renderArchivo();
+    renderObservaciones();
     document.getElementById('importInput').value = '';
     toast('Datos importados correctamente');
   };
@@ -1929,6 +2145,7 @@ renderClienteSelect();
 renderItems();
 renderHistorial();
 renderObservaciones();
+renderArchivo();
 
 /* ---------- registro del service worker (offline + instalación) ---------- */
 if('serviceWorker' in navigator){
