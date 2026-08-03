@@ -162,6 +162,12 @@
   .toast.show{opacity:1;}
 
   .hist-item{cursor:pointer;}
+
+  .fin-bar-row{display:flex;align-items:center;gap:8px;margin:8px 0;}
+  .fin-bar-label{width:38px;font-size:11px;color:var(--muted);flex-shrink:0;}
+  .fin-bar-track{flex:1;background:#eef0ee;border-radius:5px;height:16px;overflow:hidden;}
+  .fin-bar-fill{background:var(--mat);height:100%;border-radius:5px 0 0 5px;transition:width .2s;}
+  .fin-bar-value{width:64px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -182,6 +188,7 @@
     <button data-tab="materiales">Materiales</button>
     <button data-tab="clientes">Clientes</button>
     <button data-tab="historial">Historial</button>
+    <button data-tab="finanzas">Finanzas</button>
   </nav>
 
   <main>
@@ -426,6 +433,44 @@
         <button class="btn secondary" onclick="exportarDatos()">Exportar datos (respaldo)</button>
         <button class="btn secondary" style="margin-top:8px;" onclick="document.getElementById('importInput').click()">Importar datos</button>
         <input type="file" id="importInput" accept="application/json" style="display:none;" onchange="importarDatos(this.files[0])">
+      </div>
+    </section>
+
+    <!-- ===================== FINANZAS ===================== -->
+    <section class="view" id="view-finanzas">
+      <div class="card">
+        <h2><span class="reg-mark"></span>Período</h2>
+        <select id="finPeriodo" onchange="renderFinanzas()">
+          <option value="mes">Este mes</option>
+          <option value="mesAnterior">Mes anterior</option>
+          <option value="anio">Este año</option>
+          <option value="todo">Todo</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <h2><span class="reg-mark"></span>Resumen del período</h2>
+        <div id="finResumenPeriodo"></div>
+      </div>
+
+      <div class="card">
+        <h2><span class="reg-mark"></span>Cobros (acumulado, no depende del período)</h2>
+        <div id="finCobros"></div>
+      </div>
+
+      <div class="card">
+        <h2><span class="reg-mark"></span>Desglose de costos del período</h2>
+        <div id="finDesglose"></div>
+      </div>
+
+      <div class="card">
+        <h2><span class="reg-mark"></span>Ventas — últimos 6 meses</h2>
+        <div id="finGrafico"></div>
+      </div>
+
+      <div class="card">
+        <h2><span class="reg-mark"></span>Pendientes de cobro</h2>
+        <div id="finPendientes"></div>
       </div>
     </section>
 
@@ -1298,7 +1343,8 @@ function guardarHistorialActual(r){
     total: r.totalVenta,
     items: r.items,
     config: r.snapshotConfig,
-    estado: 'pendiente'
+    estado: 'pendiente',
+    pagos: []
   });
   saveData();
   renderHistorial();
@@ -1377,7 +1423,7 @@ async function compartirWhatsapp(){
 }
 
 /* ---------- historial ---------- */
-function calcularGananciaHistorial(h){
+function calcularDesgloseHistorial(h){
   const items = h.items || [];
   const subtotalVenta = items.reduce((s,i)=>s+i.subtotal,0);
   const subtotalCosto = items.reduce((s,i)=>s+i.costoSubtotal,0);
@@ -1390,7 +1436,34 @@ function calcularGananciaHistorial(h){
       instalacion = subtotalVenta * ((parseFloat(cfg.instPorcentaje)||0)/100);
     }
   }
-  return (subtotalVenta - subtotalCosto) + instalacion;
+  return { subtotalVenta, subtotalCosto, instalacion, ganancia: (subtotalVenta-subtotalCosto)+instalacion };
+}
+
+function calcularGananciaHistorial(h){
+  return calcularDesgloseHistorial(h).ganancia;
+}
+
+function calcularPagado(h){
+  return (h.pagos || []).reduce((s,p)=>s+p.monto, 0);
+}
+
+function calcularSaldo(h){
+  return h.total - calcularPagado(h);
+}
+
+function registrarPago(id){
+  const h = data.historial.find(x=>x.id===id);
+  if(!h) return;
+  const saldo = calcularSaldo(h);
+  const entrada = prompt('¿Cuánto pagó el cliente ahora? (Saldo pendiente: $' + saldo.toFixed(2) + ')');
+  if(entrada===null) return;
+  const monto = parseFloat(entrada.replace(',','.'));
+  if(isNaN(monto) || monto<=0){ toast('Ingresá un monto válido'); return; }
+  if(!h.pagos) h.pagos = [];
+  h.pagos.push({ id: Date.now().toString(), monto, fecha: new Date().toLocaleDateString('es-UY') });
+  saveData();
+  renderHistorial();
+  toast('Pago registrado');
 }
 
 function renderResumenHistorial(){
@@ -1402,36 +1475,46 @@ function renderResumenHistorial(){
   }
   const totalAceptado = aceptados.reduce((s,h)=>s+h.total,0);
   const gananciaTotal = aceptados.reduce((s,h)=>s+calcularGananciaHistorial(h),0);
+  const totalPagado = aceptados.reduce((s,h)=>s+calcularPagado(h),0);
+  const totalSaldo = aceptados.reduce((s,h)=>s+calcularSaldo(h),0);
   cont.innerHTML = `
     <div class="totals-box">
       <div class="trow"><span>Presupuestos aceptados</span><span>${aceptados.length}</span></div>
       <div class="trow total"><span>Total aceptado</span><span>$${totalAceptado.toFixed(2)}</span></div>
+      <div class="trow"><span>Cobrado</span><span style="color:#3a7a5e;">$${totalPagado.toFixed(2)}</span></div>
+      <div class="trow"><span>Saldo pendiente</span><span style="color:${totalSaldo>0.005?'#c0722a':'#3a7a5e'};font-weight:600;">$${totalSaldo.toFixed(2)}</span></div>
       <div class="trow profit"><span>Ganancia estimada</span><span>$${gananciaTotal.toFixed(2)}</span></div>
     </div>`;
 }
 
 function renderHistorial(){
   renderResumenHistorial();
+  renderFinanzas();
   const cont = document.getElementById('hLista');
   if(data.historial.length===0){ cont.innerHTML = '<div class="empty">Todavía no generaste ningún presupuesto.</div>'; return; }
   cont.innerHTML = data.historial.map(h=>{
     const aceptado = h.estado === 'aceptado';
+    const pagado = calcularPagado(h);
+    const saldo = calcularSaldo(h);
+    const saldado = saldo <= 0.005;
     return `
     <div class="list-item" style="flex-wrap:wrap;">
       <div class="li-main">
         <div class="name">${h.proyecto}</div>
         <div class="sub">${h.cliente} · ${h.fecha} · <span style="color:${aceptado?'#3a7a5e':'var(--muted)'};font-weight:${aceptado?'600':'400'};">${aceptado?'Aceptado':'Pendiente'}</span></div>
+        ${aceptado ? `<div class="sub" style="margin-top:2px;">Pagado: $${pagado.toFixed(2)} · <span style="color:${saldado?'#3a7a5e':'#c0722a'};font-weight:600;">${saldado?'Saldado':'Saldo: $'+saldo.toFixed(2)}</span></div>` : ''}
       </div>
       <div class="li-price">$${h.total.toFixed(2)}</div>
       <div class="li-actions">
         <div class="icon-btn" title="Usar de nuevo" onclick="reutilizarPresupuesto('${h.id}')">↻</div>
         <div class="icon-btn del" onclick="eliminarHistorial('${h.id}')">✕</div>
       </div>
-      <div style="width:100%;margin-top:8px;display:flex;gap:8px;">
+      <div style="width:100%;margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
         ${aceptado
           ? `<button class="btn small vinyl" style="flex:1;" onclick="generarEtiquetaEnvio('${h.id}')">📦 Etiqueta de envío</button>`
           : `<button class="btn small secondary" style="flex:1;" onclick="marcarAceptado('${h.id}')">Marcar como aceptado</button>`
         }
+        ${aceptado && !saldado ? `<button class="btn small" style="flex:1;background:#c0722a;color:#fff;" onclick="registrarPago('${h.id}')">💰 Registrar pago</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1441,9 +1524,145 @@ function marcarAceptado(id){
   const h = data.historial.find(x=>x.id===id);
   if(!h) return;
   h.estado = 'aceptado';
+  if(!h.pagos) h.pagos = [];
   saveData();
   renderHistorial();
   toast('Presupuesto marcado como aceptado');
+}
+
+/* ---------- finanzas ---------- */
+function parseFechaUY(str){
+  const partes = (str||'').split('/').map(Number);
+  return new Date(partes[2]||2000, (partes[1]||1)-1, partes[0]||1);
+}
+
+function getRangoPeriodo(periodo){
+  const hoy = new Date();
+  let inicio, fin;
+  if(periodo === 'mes'){
+    inicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    fin = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0, 23,59,59);
+  }else if(periodo === 'mesAnterior'){
+    inicio = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
+    fin = new Date(hoy.getFullYear(), hoy.getMonth(), 0, 23,59,59);
+  }else if(periodo === 'anio'){
+    inicio = new Date(hoy.getFullYear(), 0, 1);
+    fin = new Date(hoy.getFullYear(), 11, 31, 23,59,59);
+  }else{
+    inicio = new Date(2000,0,1);
+    fin = new Date(2100,0,1);
+  }
+  return {inicio, fin};
+}
+
+function renderFinanzas(){
+  const periodoSel = document.getElementById('finPeriodo');
+  if(!periodoSel) return;
+  const periodo = periodoSel.value;
+  const {inicio, fin} = getRangoPeriodo(periodo);
+
+  const aceptados = data.historial.filter(h=>h.estado==='aceptado');
+
+  const aceptadosPeriodo = aceptados.filter(h=>{
+    const f = parseFechaUY(h.fecha);
+    return f>=inicio && f<=fin;
+  });
+  const ventasPeriodo = aceptadosPeriodo.reduce((s,h)=>s+h.total,0);
+
+  let cobradoPeriodo = 0;
+  aceptados.forEach(h=>{
+    (h.pagos||[]).forEach(p=>{
+      const f = parseFechaUY(p.fecha);
+      if(f>=inicio && f<=fin) cobradoPeriodo += p.monto;
+    });
+  });
+
+  let gananciaRealizada = 0, gananciaPendiente = 0, totalPagadoAcum=0, totalSaldoAcum=0;
+  aceptados.forEach(h=>{
+    const desglose = calcularDesgloseHistorial(h);
+    const pagado = calcularPagado(h);
+    const saldo = calcularSaldo(h);
+    totalPagadoAcum += pagado;
+    totalSaldoAcum += saldo;
+    const fraccion = h.total>0 ? Math.min(1, pagado/h.total) : 0;
+    gananciaRealizada += desglose.ganancia * fraccion;
+    gananciaPendiente += desglose.ganancia * (1-fraccion);
+  });
+
+  document.getElementById('finResumenPeriodo').innerHTML = `
+    <div class="totals-box">
+      <div class="trow"><span>Ventas aceptadas</span><span>${aceptadosPeriodo.length}</span></div>
+      <div class="trow total"><span>Monto vendido</span><span>$${ventasPeriodo.toFixed(2)}</span></div>
+      <div class="trow"><span>Cobrado en el período</span><span style="color:#3a7a5e;">$${cobradoPeriodo.toFixed(2)}</span></div>
+    </div>`;
+
+  document.getElementById('finCobros').innerHTML = `
+    <div class="totals-box">
+      <div class="trow"><span>Cobrado (total histórico)</span><span style="color:#3a7a5e;">$${totalPagadoAcum.toFixed(2)}</span></div>
+      <div class="trow"><span>Pendiente de cobro</span><span style="color:${totalSaldoAcum>0.005?'#c0722a':'#3a7a5e'};font-weight:600;">$${totalSaldoAcum.toFixed(2)}</span></div>
+      <div class="trow profit"><span>Ganancia realizada</span><span>$${gananciaRealizada.toFixed(2)}</span></div>
+      <div class="trow"><span>Ganancia pendiente de cobro</span><span>$${gananciaPendiente.toFixed(2)}</span></div>
+    </div>`;
+
+  let materialesPeriodo=0, instalacionPeriodo=0;
+  aceptadosPeriodo.forEach(h=>{
+    const d = calcularDesgloseHistorial(h);
+    materialesPeriodo += d.subtotalCosto;
+    instalacionPeriodo += d.instalacion;
+  });
+  const baseDesglose = materialesPeriodo+instalacionPeriodo;
+  if(aceptadosPeriodo.length===0){
+    document.getElementById('finDesglose').innerHTML = '<div class="empty">Sin ventas aceptadas en este período.</div>';
+  }else{
+    const pctMat = baseDesglose>0 ? (materialesPeriodo/baseDesglose*100) : 0;
+    const pctInst = baseDesglose>0 ? (instalacionPeriodo/baseDesglose*100) : 0;
+    document.getElementById('finDesglose').innerHTML = `
+      <div class="fin-bar-row">
+        <div class="fin-bar-label">Materiales</div>
+        <div class="fin-bar-track"><div class="fin-bar-fill" style="width:${pctMat}%;"></div></div>
+        <div class="fin-bar-value">$${materialesPeriodo.toFixed(2)}</div>
+      </div>
+      <div class="fin-bar-row">
+        <div class="fin-bar-label">Instal.</div>
+        <div class="fin-bar-track"><div class="fin-bar-fill" style="width:${pctInst}%;background:var(--vinyl);"></div></div>
+        <div class="fin-bar-value">$${instalacionPeriodo.toFixed(2)}</div>
+      </div>`;
+  }
+
+  const hoy = new Date();
+  const meses = [];
+  for(let i=5;i>=0;i--){ meses.push(new Date(hoy.getFullYear(), hoy.getMonth()-i, 1)); }
+  const nombresMes = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const montosPorMes = meses.map(m=>{
+    return aceptados.reduce((s,h)=>{
+      const f = parseFechaUY(h.fecha);
+      return (f.getFullYear()===m.getFullYear() && f.getMonth()===m.getMonth()) ? s+h.total : s;
+    },0);
+  });
+  const maxMonto = Math.max(...montosPorMes, 1);
+  document.getElementById('finGrafico').innerHTML = meses.map((m,i)=>`
+    <div class="fin-bar-row">
+      <div class="fin-bar-label">${nombresMes[m.getMonth()]}</div>
+      <div class="fin-bar-track"><div class="fin-bar-fill" style="width:${(montosPorMes[i]/maxMonto*100)}%;"></div></div>
+      <div class="fin-bar-value">$${montosPorMes[i].toFixed(0)}</div>
+    </div>`).join('');
+
+  const pendientes = aceptados.filter(h=>calcularSaldo(h)>0.005).sort((a,b)=>parseFechaUY(a.fecha)-parseFechaUY(b.fecha));
+  if(pendientes.length===0){
+    document.getElementById('finPendientes').innerHTML = '<div class="empty">No hay saldos pendientes de cobro. 🎉</div>';
+  }else{
+    document.getElementById('finPendientes').innerHTML = pendientes.map(h=>`
+      <div class="list-item">
+        <div class="li-main">
+          <div class="name">${h.proyecto}</div>
+          <div class="sub">${h.cliente} · ${h.fecha}</div>
+        </div>
+        <div class="li-price" style="color:#c0722a;">$${calcularSaldo(h).toFixed(2)}</div>
+        <div class="li-actions">
+          <div class="icon-btn" title="Registrar pago" onclick="registrarPago('${h.id}')">💰</div>
+        </div>
+      </div>`).join('');
+  }
 }
 
 function reutilizarPresupuesto(id){
