@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fxcalcos-cache-v8';
+const CACHE_NAME = 'fxcalcos-cache-v9';
 
 // Archivos propios de la app: se guardan en caché apenas se instala
 const ARCHIVOS_PROPIOS = [
@@ -6,7 +6,8 @@ const ARCHIVOS_PROPIOS = [
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './formulario-cliente.html'
 ];
 
 self.addEventListener('install', event => {

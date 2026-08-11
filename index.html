@@ -96,13 +96,19 @@
 
   label{display:block;font-size:12px;font-weight:500;color:var(--muted);margin:10px 0 4px;}
   label:first-child{margin-top:0;}
-  input,select{
+  input,select,textarea{
     width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;
     font-family:'Inter',sans-serif;font-size:14px;background:#fdfdfc;color:var(--ink);
   }
-  input:focus,select:focus{outline:none;border-color:var(--mat);}
+  textarea{resize:vertical;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--mat);}
   .row{display:flex;gap:10px;}
   .row > *{flex:1;}
+
+  .pending-badge{
+    display:inline-block;background:var(--vinyl);color:var(--mat-dark);
+    font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;
+  }
 
   .radio-group{display:flex;gap:8px;margin-top:4px;}
   .radio-opt{
@@ -390,6 +396,16 @@
 
     <!-- ===================== CLIENTES ===================== -->
     <section class="view" id="view-clientes">
+      <div class="card">
+        <h2><span class="reg-mark"></span>📋 Nuevo cliente desde WhatsApp</h2>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px;">
+          Pegá acá el mensaje que te llegó del formulario de registro. Se carga como cliente
+          <strong>pendiente de aceptar</strong> para que lo revises antes de confirmarlo.
+        </p>
+        <textarea id="wpMensaje" rows="6" placeholder="Pegá el mensaje de WhatsApp acá..."></textarea>
+        <button class="btn small vinyl" style="width:100%;margin-top:8px;" onclick="interpretarMensajeWhatsapp()">Interpretar y cargar como pendiente</button>
+      </div>
+
       <div class="card">
         <h2><span class="reg-mark"></span><span id="cFormTitle">Nuevo cliente</span></h2>
         <label>Nombre</label>
@@ -795,7 +811,24 @@ function eliminarCliente(id){
 function renderClientes(){
   const cont = document.getElementById('cLista');
   if(data.clientes.length===0){ cont.innerHTML = '<div class="empty">Todavía no cargaste clientes.</div>'; return; }
-  cont.innerHTML = data.clientes.map(c=>`
+
+  const pendientes = data.clientes.filter(c=>c.estado==='pendiente');
+  const confirmados = data.clientes.filter(c=>c.estado!=='pendiente');
+
+  const filaPendiente = c => `
+    <div class="list-item" style="background:#fdf7e8;">
+      <div class="li-main">
+        <div class="name">${c.nombre}<span class="pending-badge">Pendiente</span></div>
+        <div class="sub">${[c.cedula?('C.I. '+c.cedula):'', c.direccion,c.telefono,c.email].filter(Boolean).join(' · ')}</div>
+      </div>
+      <div class="li-actions">
+        <div class="icon-btn" title="Editar" onclick="editarCliente('${c.id}')">✎</div>
+        <div class="icon-btn" title="Aceptar" style="color:#3a7a5e;" onclick="aceptarClientePendiente('${c.id}')">✓</div>
+        <div class="icon-btn del" title="Descartar" onclick="eliminarCliente('${c.id}')">✕</div>
+      </div>
+    </div>`;
+
+  const filaConfirmado = c => `
     <div class="list-item">
       <div class="li-main">
         <div class="name">${c.nombre}</div>
@@ -805,13 +838,65 @@ function renderClientes(){
         <div class="icon-btn" title="Editar" onclick="editarCliente('${c.id}')">✎</div>
         <div class="icon-btn del" onclick="eliminarCliente('${c.id}')">✕</div>
       </div>
-    </div>`).join('');
+    </div>`;
+
+  cont.innerHTML = pendientes.map(filaPendiente).join('') + confirmados.map(filaConfirmado).join('');
+}
+
+function aceptarClientePendiente(id){
+  const c = data.clientes.find(x=>x.id===id);
+  if(!c) return;
+  delete c.estado;
+  saveData();
+  renderClientes();
+  renderClienteSelect();
+  toast('Cliente aceptado');
 }
 
 function renderClienteSelect(){
   const sel = document.getElementById('pClienteSelect');
   sel.innerHTML = '<option value="">— Sin cliente asignado —</option>' +
-    data.clientes.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
+    data.clientes.filter(c=>c.estado!=='pendiente').map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
+}
+
+function normalizarTexto(s){
+  return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+}
+
+function interpretarMensajeWhatsapp(){
+  const texto = document.getElementById('wpMensaje').value.trim();
+  if(!texto){ toast('Pegá el mensaje primero'); return; }
+
+  const campos = {};
+  texto.split('\n').forEach(linea=>{
+    const idx = linea.indexOf(':');
+    if(idx === -1) return;
+    const etiqueta = normalizarTexto(linea.slice(0, idx)).replace(/[^a-z]/g,'');
+    const valor = linea.slice(idx+1).trim();
+    if(!valor) return;
+    if(etiqueta.includes('nombre')) campos.nombre = valor;
+    else if(etiqueta.includes('ci') || etiqueta.includes('cedula') || etiqueta.includes('documento')) campos.cedula = valor;
+    else if(etiqueta.includes('direccion')) campos.direccion = valor;
+    else if(etiqueta.includes('telefono') || etiqueta==='tel') campos.telefono = valor;
+    else if(etiqueta.includes('email') || etiqueta.includes('correo') || etiqueta.includes('mail')) campos.email = valor;
+  });
+
+  if(!campos.nombre){ toast('No pude encontrar el nombre en el mensaje — revisá el formato'); return; }
+
+  data.clientes.push({
+    id: Date.now().toString(),
+    nombre: campos.nombre,
+    cedula: campos.cedula || '',
+    direccion: campos.direccion || '',
+    telefono: campos.telefono || '',
+    email: campos.email || '',
+    estado: 'pendiente'
+  });
+  saveData();
+  document.getElementById('wpMensaje').value = '';
+  renderClientes();
+  renderClienteSelect();
+  toast('Cliente cargado como pendiente — revisalo y tocá ✓ para aceptarlo');
 }
 
 /* ---------- observaciones ---------- */
