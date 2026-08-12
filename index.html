@@ -233,6 +233,11 @@
           <option value="con">Con colocación</option>
           <option value="sin">Sin colocación</option>
         </select>
+
+        <div class="check-row">
+          <input type="checkbox" id="pConEnvio">
+          <label for="pConEnvio" style="margin:0;">¿Es con envío? (habilita la etiqueta de envío)</label>
+        </div>
       </div>
 
       <div class="card" id="pInstalacionCard">
@@ -390,6 +395,7 @@
 
       <div class="card">
         <h2><span class="reg-mark"></span>Materiales cargados</h2>
+        <input id="mBuscar" placeholder="🔍 Buscar material..." oninput="renderMateriales()" style="margin-bottom:10px;">
         <div id="mLista"><div class="empty">Todavía no cargaste materiales.</div></div>
       </div>
     </section>
@@ -424,6 +430,7 @@
 
       <div class="card">
         <h2><span class="reg-mark"></span>Clientes registrados</h2>
+        <input id="cBuscar" placeholder="🔍 Buscar por nombre o C.I..." oninput="renderClientes()" style="margin-bottom:10px;">
         <div id="cLista"><div class="empty">Todavía no cargaste clientes.</div></div>
       </div>
     </section>
@@ -689,7 +696,20 @@ function eliminarMaterial(id){
 function renderMateriales(){
   const cont = document.getElementById('mLista');
   if(data.materiales.length===0){ cont.innerHTML = '<div class="empty">Todavía no cargaste materiales.</div>'; return; }
-  cont.innerHTML = data.materiales.map(m=>{
+
+  const buscarEl = document.getElementById('mBuscar');
+  const q = buscarEl ? normalizarTexto(buscarEl.value.trim()) : '';
+
+  let lista = data.materiales.slice().sort((a,b)=>
+    a.nombre.localeCompare(b.nombre, 'es', { numeric:true, sensitivity:'base' })
+  );
+
+  if(q){
+    lista = lista.filter(m=>normalizarTexto(m.nombre).includes(q));
+    if(lista.length===0){ cont.innerHTML = '<div class="empty">No hay materiales que coincidan con la búsqueda.</div>'; return; }
+  }
+
+  cont.innerHTML = lista.map(m=>{
     const pv = precioVentaDe(m);
     const modoTxt = m.modo === 'pct' ? (m.porcentaje+'% s/costo') : 'precio fijo';
     return `<div class="list-item">
@@ -708,9 +728,12 @@ function renderMateriales(){
 
 function renderMaterialSelect(){
   const sel = document.getElementById('pMaterialSelect');
+  const ordenados = data.materiales.slice().sort((a,b)=>
+    a.nombre.localeCompare(b.nombre, 'es', { numeric:true, sensitivity:'base' })
+  );
   sel.innerHTML = '<option value="">— Elegir material —</option>' +
     '<option value="__custom__">✎ Venta única / artículo personalizado</option>' +
-    data.materiales.map(m=>`<option value="${m.id}">${m.nombre} ($${precioVentaDe(m).toFixed(2)}/${unidadLabel[m.unidad]})</option>`).join('');
+    ordenados.map(m=>`<option value="${m.id}">${m.nombre} ($${precioVentaDe(m).toFixed(2)}/${unidadLabel[m.unidad]})</option>`).join('');
 }
 
 document.getElementById('pMaterialSelect').addEventListener('change', e=>{
@@ -812,8 +835,14 @@ function renderClientes(){
   const cont = document.getElementById('cLista');
   if(data.clientes.length===0){ cont.innerHTML = '<div class="empty">Todavía no cargaste clientes.</div>'; return; }
 
-  const pendientes = data.clientes.filter(c=>c.estado==='pendiente');
-  const confirmados = data.clientes.filter(c=>c.estado!=='pendiente');
+  const buscarEl = document.getElementById('cBuscar');
+  const q = buscarEl ? normalizarTexto(buscarEl.value.trim()) : '';
+  const coincide = c => !q || normalizarTexto(c.nombre).includes(q) || normalizarTexto(c.cedula||'').includes(q);
+
+  const pendientes = data.clientes.filter(c=>c.estado==='pendiente' && coincide(c));
+  const confirmados = data.clientes
+    .filter(c=>c.estado!=='pendiente' && coincide(c))
+    .sort((a,b)=> a.nombre.localeCompare(b.nombre, 'es', { numeric:true, sensitivity:'base' }));
 
   const filaPendiente = c => `
     <div class="list-item" style="background:#fdf7e8;">
@@ -839,6 +868,11 @@ function renderClientes(){
         <div class="icon-btn del" onclick="eliminarCliente('${c.id}')">✕</div>
       </div>
     </div>`;
+
+  if(pendientes.length===0 && confirmados.length===0){
+    cont.innerHTML = '<div class="empty">No hay clientes que coincidan con la búsqueda.</div>';
+    return;
+  }
 
   cont.innerHTML = pendientes.map(filaPendiente).join('') + confirmados.map(filaConfirmado).join('');
 }
@@ -1097,6 +1131,7 @@ function resetPresupuesto(){
   document.getElementById('pTrasladoTarifaKm').value = 0;
   document.getElementById('pInstPorcentaje').value = 30;
   document.getElementById('pInstFijo').value = 0;
+  document.getElementById('pConEnvio').checked = false;
   setModoInstalacion('pct');
   toggleInstalacionCard();
   selectedObsIds = [];
@@ -1150,6 +1185,7 @@ function buildPresupuestoPDF(){
     incluirValidez,
     validezDias,
     colocacionValue,
+    conEnvio: document.getElementById('pConEnvio').checked,
     modoInstalacion,
     instPorcentaje: document.getElementById('pInstPorcentaje').value,
     instFijo: document.getElementById('pInstFijo').value,
@@ -1406,6 +1442,7 @@ function guardarCambiosPresupuesto(){
     incluirValidez: document.getElementById('pValidezCheck').checked,
     validezDias: document.getElementById('pValidezDias').value,
     colocacionValue,
+    conEnvio: document.getElementById('pConEnvio').checked,
     modoInstalacion,
     instPorcentaje: document.getElementById('pInstPorcentaje').value,
     instFijo: document.getElementById('pInstFijo').value,
@@ -1453,6 +1490,93 @@ function guardarHistorialActual(r){
   });
   saveData();
   renderHistorial();
+}
+
+/* ---------- nota de pago ---------- */
+function generarNotaPago(id){
+  const h = data.historial.find(x=>x.id===id);
+  if(!h){ toast('No se encontró el presupuesto'); return; }
+  if(!window.jspdf){ toast('No se pudo cargar el generador de PDF. Revisá tu conexión a internet.'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const pageWidthMM = 90;
+  const marginMM = 6;
+  const contentWidth = pageWidthMM - marginMM*2;
+
+  const pagado = calcularPagado(h);
+  const saldo = calcularSaldo(h);
+  const saldado = saldo <= 0.005;
+  const fechaEmision = new Date().toLocaleDateString('es-UY');
+
+  function dibujar(doc){
+    let y = 10;
+    doc.setFillColor(32,66,63);
+    doc.rect(0,0,pageWidthMM,20,'F');
+    doc.addImage(LOGO_DATA_URL, 'JPEG', marginMM, 3, 14, 14);
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(13);
+    doc.text('FX Calcos', marginMM+18, 11);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8);
+    doc.text('Nota de pago', marginMM+18, 16);
+    y = 27;
+
+    doc.setTextColor(23,26,25);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(9);
+    doc.text('Fecha de emisión: ' + fechaEmision, marginMM, y);
+    y += 6;
+    doc.setFont('helvetica','bold');
+    doc.text('Cliente: ' + h.cliente, marginMM, y);
+    y += 6;
+    doc.setFont('helvetica','normal');
+    const proyectoLinea = doc.splitTextToSize('Proyecto: ' + h.proyecto, contentWidth);
+    doc.text(proyectoLinea, marginMM, y);
+    y += proyectoLinea.length*4 + 4;
+
+    doc.setDrawColor(200,200,195);
+    doc.setLineDashPattern([1,1],0);
+    doc.line(marginMM, y, pageWidthMM-marginMM, y);
+    doc.setLineDashPattern([],0);
+    y += 8;
+
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10);
+    doc.text('Total del trabajo', marginMM, y);
+    doc.text('$'+h.total.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+    y += 7;
+    doc.text('Pagado hasta la fecha', marginMM, y);
+    doc.setTextColor(58,122,94);
+    doc.text('$'+pagado.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+    y += 9;
+
+    doc.setDrawColor(32,66,63);
+    doc.setLineWidth(0.6);
+    doc.line(marginMM, y, pageWidthMM-marginMM, y);
+    y += 7;
+
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(13);
+    doc.setTextColor(18,50,48);
+    doc.text(saldado ? 'SALDADO' : 'Saldo pendiente', marginMM, y);
+    if(!saldado){
+      doc.setTextColor(192,114,42);
+      doc.text('$'+saldo.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+    }
+    y += 12;
+
+    return y;
+  }
+
+  const medidor = new jsPDF({ unit:'mm', format:[pageWidthMM, 1000] });
+  const alturaFinal = dibujar(medidor);
+
+  const finalDoc = new jsPDF({ unit:'mm', format:[pageWidthMM, alturaFinal] });
+  dibujar(finalDoc);
+
+  const nombreArchivo = 'NotaDePago_' + h.cliente.replace(/\s+/g,'_') + '_' + Date.now() + '.pdf';
+  guardarOAbrirPDF(finalDoc, nombreArchivo);
 }
 
 function guardarOAbrirPDF(finalDoc, nombreArchivo){
@@ -1602,6 +1726,17 @@ function renderHistorial(){
     const pagado = calcularPagado(h);
     const saldo = calcularSaldo(h);
     const saldado = saldo <= 0.005;
+    const cfg = h.config || {};
+    const conEnvio = cfg.conEnvio !== false; // los trabajos viejos (sin este campo) siguen mostrando el botón
+    const etiquetaGenerada = !!h.etiquetaGenerada;
+
+    let botonEtiqueta = '';
+    if(aceptado && conEnvio){
+      botonEtiqueta = etiquetaGenerada
+        ? `<button class="btn small" style="flex:1;background:#dfe2df;color:#8a908d;" disabled title="Editá el presupuesto para volver a habilitarla">✓ Etiqueta generada</button>`
+        : `<button class="btn small vinyl" style="flex:1;" onclick="generarEtiquetaEnvio('${h.id}')">📦 Etiqueta de envío</button>`;
+    }
+
     return `
     <div class="list-item" style="flex-wrap:wrap;">
       <div class="li-main">
@@ -1616,10 +1751,11 @@ function renderHistorial(){
       </div>
       <div style="width:100%;margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
         ${aceptado
-          ? `<button class="btn small vinyl" style="flex:1;" onclick="generarEtiquetaEnvio('${h.id}')">📦 Etiqueta de envío</button>`
+          ? botonEtiqueta
           : `<button class="btn small secondary" style="flex:1;" onclick="marcarAceptado('${h.id}')">Marcar como aceptado</button>`
         }
         ${aceptado && !saldado ? `<button class="btn small" style="flex:1;background:#c0722a;color:#fff;" onclick="registrarPago('${h.id}')">💰 Registrar pago</button>` : ''}
+        ${aceptado ? `<button class="btn small secondary" style="flex:1;" onclick="generarNotaPago('${h.id}')">🧾 Nota de pago</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1890,6 +2026,11 @@ function reutilizarPresupuesto(id){
   const h = data.historial.find(x=>x.id===id);
   if(!h) return;
 
+  if(h.etiquetaGenerada){
+    h.etiquetaGenerada = false;
+    saveData();
+  }
+
   presupuestoItems = JSON.parse(JSON.stringify(h.items));
   editingHistorialId = id;
   document.getElementById('pEditandoBanner').style.display = 'block';
@@ -1906,6 +2047,7 @@ function reutilizarPresupuesto(id){
   document.getElementById('pValidezDias').value = cfg.validezDias || 15;
 
   document.getElementById('pColocacion').value = cfg.colocacionValue || 'con';
+  document.getElementById('pConEnvio').checked = !!cfg.conEnvio;
   toggleInstalacionCard();
   setModoInstalacion(cfg.modoInstalacion || 'pct');
   document.getElementById('pInstPorcentaje').value = cfg.instPorcentaje || 30;
@@ -2072,6 +2214,10 @@ function generarEtiquetaEnvio(id){
 
   const nombreArchivo = 'Etiqueta_' + nombreDest.replace(/\s+/g,'_') + '_' + Date.now() + '.pdf';
   guardarOAbrirPDF(doc, nombreArchivo);
+
+  h.etiquetaGenerada = true;
+  saveData();
+  renderHistorial();
 }
 
 
@@ -2147,6 +2293,7 @@ function duplicarDesdeArchivo(id){
   document.getElementById('pValidezDias').value = cfg.validezDias || 15;
 
   document.getElementById('pColocacion').value = cfg.colocacionValue || 'con';
+  document.getElementById('pConEnvio').checked = !!cfg.conEnvio;
   toggleInstalacionCard();
   setModoInstalacion(cfg.modoInstalacion || 'pct');
   document.getElementById('pInstPorcentaje').value = cfg.instPorcentaje || 30;
