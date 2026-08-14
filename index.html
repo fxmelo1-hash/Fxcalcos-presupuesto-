@@ -1165,7 +1165,7 @@ function buildPresupuestoPDF(){
   const contentWidth = pageWidthMM - marginMM*2;
 
   // documento temporal alto para medir, luego se recorta
-  let doc = new jsPDF({ unit:'mm', format:[pageWidthMM, 1000] });
+  let doc = new jsPDF({ orientation:'portrait', unit:'mm', format:[pageWidthMM, 1000] });
   let y = 10;
 
   const clienteId = document.getElementById('pClienteSelect').value;
@@ -1313,7 +1313,7 @@ function buildPresupuestoPDF(){
   // recortar página al alto real de contenido
   const finalHeight = y;
   const pdfData = doc.internal.pageSize;
-  const finalDoc = new jsPDF({ unit:'mm', format:[pageWidthMM, finalHeight] });
+  const finalDoc = new jsPDF({ orientation:'portrait', unit:'mm', format:[pageWidthMM, Math.max(finalHeight, 80)] });
   // volver a dibujar todo sobre el documento final (mismo procedimiento)
   finalDoc.setFillColor(0,0,0);
   finalDoc.rect(0,0,pageWidthMM,24,'F');
@@ -1492,21 +1492,34 @@ function guardarHistorialActual(r){
   renderHistorial();
 }
 
-/* ---------- nota de pago ---------- */
-function generarNotaPago(id){
+/* ---------- documento desde historial: presupuesto o nota de pago ---------- */
+function generarDocumentoHistorial(id, tipo){
   const h = data.historial.find(x=>x.id===id);
   if(!h){ toast('No se encontró el presupuesto'); return; }
   if(!window.jspdf){ toast('No se pudo cargar el generador de PDF. Revisá tu conexión a internet.'); return; }
+
+  const cfg = h.config || {};
+  const cliente = (cfg.clienteId && data.clientes.find(c=>c.id===cfg.clienteId)) || null;
+  const tipoTrabajo = cfg.colocacionValue === 'con' ? 'Con colocación' : 'Sin colocación';
+  const items = h.items || [];
+  const desglose = calcularDesgloseHistorial(h);
+  const traslado = (parseFloat(cfg.trasladoFijo)||0) + (parseFloat(cfg.trasladoKm)||0)*(parseFloat(cfg.trasladoTarifaKm)||0);
+
+  let fraseTexto = '';
+  if(tipo === 'nota'){
+    const sel = document.getElementById('notaFrase_'+id);
+    const obsId = sel ? sel.value : '';
+    const obs = obsId ? data.observaciones.find(o=>o.id===obsId) : null;
+    fraseTexto = obs ? obs.texto : '';
+  }
 
   const { jsPDF } = window.jspdf;
   const pageWidthMM = 90;
   const marginMM = 6;
   const contentWidth = pageWidthMM - marginMM*2;
-
   const pagado = calcularPagado(h);
   const saldo = calcularSaldo(h);
   const saldado = saldo <= 0.005;
-  const fechaEmision = new Date().toLocaleDateString('es-UY');
 
   function dibujar(doc){
     let y = 10;
@@ -1519,63 +1532,175 @@ function generarNotaPago(id){
     doc.text('FX Calcos', marginMM+18, 11);
     doc.setFont('helvetica','normal');
     doc.setFontSize(8);
-    doc.text('Nota de pago', marginMM+18, 16);
+    doc.text(tipo === 'nota' ? 'Nota de pago' : 'Presupuesto', marginMM+18, 16);
     y = 27;
 
     doc.setTextColor(23,26,25);
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
-    doc.text('Fecha de emisión: ' + fechaEmision, marginMM, y);
+    doc.text('Fecha: ' + h.fecha, marginMM, y);
+    if(tipo === 'nota'){
+      doc.text('Emitido: ' + new Date().toLocaleDateString('es-UY'), marginMM+40, y);
+    }
     y += 6;
+
+    if(cliente){
+      doc.setFont('helvetica','bold');
+      doc.text('Cliente: ' + cliente.nombre, marginMM, y);
+      y += 5;
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(107,115,112);
+      if(cliente.direccion){ doc.text(cliente.direccion, marginMM, y); y += 4; }
+      if(cliente.telefono || cliente.email){ doc.text([cliente.telefono, cliente.email].filter(Boolean).join(' · '), marginMM, y); y += 4; }
+      doc.setTextColor(23,26,25);
+    }else{
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(9);
+      doc.text('Cliente: ' + h.cliente, marginMM, y);
+      y += 5;
+    }
+    y += 1;
+
     doc.setFont('helvetica','bold');
-    doc.text('Cliente: ' + h.cliente, marginMM, y);
-    y += 6;
-    doc.setFont('helvetica','normal');
+    doc.setFontSize(10);
     const proyectoLinea = doc.splitTextToSize('Proyecto: ' + h.proyecto, contentWidth);
     doc.text(proyectoLinea, marginMM, y);
-    y += proyectoLinea.length*4 + 4;
+    y += proyectoLinea.length*4;
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(107,115,112);
+    doc.text('Tipo de trabajo: ' + tipoTrabajo, marginMM, y);
+    y += 6;
+    doc.setTextColor(23,26,25);
 
     doc.setDrawColor(200,200,195);
     doc.setLineDashPattern([1,1],0);
     doc.line(marginMM, y, pageWidthMM-marginMM, y);
     doc.setLineDashPattern([],0);
-    y += 8;
+    y += 5;
+
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(9);
+    doc.text('Detalle', marginMM, y);
+    y += 5;
+
+    items.forEach(it=>{
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(9);
+      const izq = doc.splitTextToSize(it.nombre, contentWidth-22);
+      doc.text(izq, marginMM, y);
+      doc.text('$'+it.subtotal.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+      y += izq.length*3.6;
+      doc.setFontSize(7.5);
+      doc.setTextColor(107,115,112);
+      doc.text((it.medidaTxt ? it.medidaTxt + ' = ' : '') + it.cantidad.toFixed(2) + ' ' + unidadLabel[it.unidad] + ' x $' + it.precioUnit.toFixed(2), marginMM, y);
+      y += 5.5;
+      doc.setTextColor(23,26,25);
+    });
+
+    doc.setDrawColor(200,200,195);
+    doc.setLineDashPattern([1,1],0);
+    doc.line(marginMM, y, pageWidthMM-marginMM, y);
+    doc.setLineDashPattern([],0);
+    y += 5;
 
     doc.setFont('helvetica','normal');
-    doc.setFontSize(10);
-    doc.text('Total del trabajo', marginMM, y);
-    doc.text('$'+h.total.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
-    y += 7;
-    doc.text('Pagado hasta la fecha', marginMM, y);
-    doc.setTextColor(58,122,94);
-    doc.text('$'+pagado.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
-    y += 9;
+    doc.setFontSize(9);
+    doc.text('Subtotal: $' + desglose.subtotalVenta.toFixed(2), marginMM, y); y += 5;
+    if(desglose.instalacion>0){ doc.text('Instalación / colocación: $' + desglose.instalacion.toFixed(2), marginMM, y); y += 5; }
+    if(traslado>0){ doc.text('Traslado: $' + traslado.toFixed(2), marginMM, y); y += 5; }
+    y += 1;
 
     doc.setDrawColor(32,66,63);
     doc.setLineWidth(0.6);
     doc.line(marginMM, y, pageWidthMM-marginMM, y);
-    y += 7;
-
+    y += 6;
     doc.setFont('helvetica','bold');
     doc.setFontSize(13);
     doc.setTextColor(18,50,48);
-    doc.text(saldado ? 'SALDADO' : 'Saldo pendiente', marginMM, y);
-    if(!saldado){
-      doc.setTextColor(192,114,42);
-      doc.text('$'+saldo.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+    doc.text('TOTAL', marginMM, y);
+    doc.text('$'+h.total.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+    y += 8;
+
+    if(tipo === 'presupuesto'){
+      const obsTextos = cfg.obsTextos || [];
+      if(obsTextos.length>0){
+        doc.setFont('helvetica','italic');
+        doc.setFontSize(8.5);
+        doc.setTextColor(70,70,70);
+        obsTextos.forEach(txt=>{
+          const wrapped = doc.splitTextToSize('• ' + txt, contentWidth);
+          doc.text(wrapped, marginMM, y);
+          y += wrapped.length*3.6 + 2;
+        });
+        doc.setTextColor(23,26,25);
+        y += 2;
+      }
+
+      doc.setDrawColor(200,200,195);
+      doc.setLineDashPattern([1,1],0);
+      doc.line(marginMM, y, pageWidthMM-marginMM, y);
+      doc.setLineDashPattern([],0);
+      y += 5;
+
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(8);
+      doc.setTextColor(23,26,25);
+      doc.text(CUENTAS_TEXT[0], marginMM, y);
+      y += 4.5;
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(8);
+      for(let i=1;i<CUENTAS_TEXT.length;i++){
+        doc.text(CUENTAS_TEXT[i], marginMM, y);
+        y += 4.2;
+      }
+      y += 3;
+    }else{
+      doc.setDrawColor(200,200,195);
+      doc.setLineDashPattern([1,1],0);
+      doc.line(marginMM, y, pageWidthMM-marginMM, y);
+      doc.setLineDashPattern([],0);
+      y += 6;
+
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(9);
+      doc.text('Pagado hasta la fecha', marginMM, y);
+      doc.setTextColor(58,122,94);
+      doc.text('$'+pagado.toFixed(2), pageWidthMM-marginMM, y, {align:'right'});
+      y += 8;
+      doc.setTextColor(23,26,25);
+
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(12);
+      doc.setTextColor(saldado ? 18 : 192, saldado ? 50 : 114, saldado ? 48 : 42);
+      doc.text(saldado ? 'SALDADO' : 'Saldo pendiente', marginMM, y);
+      if(!saldado){ doc.text('$'+saldo.toFixed(2), pageWidthMM-marginMM, y, {align:'right'}); }
+      y += 8;
+      doc.setTextColor(23,26,25);
+
+      if(fraseTexto){
+        doc.setFont('helvetica','italic');
+        doc.setFontSize(9);
+        doc.setTextColor(70,70,70);
+        const wrapped = doc.splitTextToSize(fraseTexto, contentWidth);
+        doc.text(wrapped, pageWidthMM/2, y, {align:'center'});
+        y += wrapped.length*4.5 + 3;
+        doc.setTextColor(23,26,25);
+      }
     }
-    y += 12;
 
     return y;
   }
 
-  const medidor = new jsPDF({ unit:'mm', format:[pageWidthMM, 1000] });
-  const alturaFinal = dibujar(medidor);
+  const medidor = new jsPDF({ orientation:'portrait', unit:'mm', format:[pageWidthMM, 1000] });
+  const alturaFinal = Math.max(dibujar(medidor), 80);
 
-  const finalDoc = new jsPDF({ unit:'mm', format:[pageWidthMM, alturaFinal] });
+  const finalDoc = new jsPDF({ orientation:'portrait', unit:'mm', format:[pageWidthMM, alturaFinal] });
   dibujar(finalDoc);
 
-  const nombreArchivo = 'NotaDePago_' + h.cliente.replace(/\s+/g,'_') + '_' + Date.now() + '.pdf';
+  const prefijo = tipo === 'nota' ? 'NotaDePago_' : 'Presupuesto_';
+  const nombreArchivo = prefijo + h.cliente.replace(/\s+/g,'_') + '_' + Date.now() + '.pdf';
   guardarOAbrirPDF(finalDoc, nombreArchivo);
 }
 
@@ -1755,8 +1880,18 @@ function renderHistorial(){
           : `<button class="btn small secondary" style="flex:1;" onclick="marcarAceptado('${h.id}')">Marcar como aceptado</button>`
         }
         ${aceptado && !saldado ? `<button class="btn small" style="flex:1;background:#c0722a;color:#fff;" onclick="registrarPago('${h.id}')">💰 Registrar pago</button>` : ''}
-        ${aceptado ? `<button class="btn small secondary" style="flex:1;" onclick="generarNotaPago('${h.id}')">🧾 Nota de pago</button>` : ''}
       </div>
+      ${aceptado ? `
+      <div style="width:100%;margin-top:8px;">
+        <select id="notaFrase_${h.id}" style="margin-bottom:6px;">
+          <option value="">— Sin frase para la nota de pago —</option>
+          ${data.observaciones.map(o=>`<option value="${o.id}">${o.texto}</option>`).join('')}
+        </select>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn small secondary" style="flex:1;" onclick="generarDocumentoHistorial('${h.id}','presupuesto')">🧾 Presupuesto</button>
+          <button class="btn small secondary" style="flex:1;" onclick="generarDocumentoHistorial('${h.id}','nota')">🧾 Nota de pago</button>
+        </div>
+      </div>` : ''}
     </div>`;
   }).join('');
 }
@@ -2012,10 +2147,10 @@ function generarPDFCierrePeriodo(candidatos, periodoLabel, totalMonto, totalGana
     return y;
   }
 
-  const medidor = new jsPDF({ unit:'mm', format:[pageWidthMM, 1000] });
-  const alturaFinal = dibujar(medidor, 0);
+  const medidor = new jsPDF({ orientation:'portrait', unit:'mm', format:[pageWidthMM, 1000] });
+  const alturaFinal = Math.max(dibujar(medidor, 0), 80);
 
-  const finalDoc = new jsPDF({ unit:'mm', format:[pageWidthMM, alturaFinal] });
+  const finalDoc = new jsPDF({ orientation:'portrait', unit:'mm', format:[pageWidthMM, alturaFinal] });
   dibujar(finalDoc, alturaFinal);
 
   const nombreArchivo = 'Cierre_' + periodoLabel.replace(/\s+/g,'_') + '_' + Date.now() + '.pdf';
