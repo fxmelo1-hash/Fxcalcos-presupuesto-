@@ -2305,11 +2305,6 @@ function generarEtiquetaEnvio(id){
   doc.text(nombreDest, barW+4, y);
 
   y += 11;
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(11.5);
-  doc.text(direccionDest || '—', barW+4, y);
-
-  y += 8;
   doc.setFont('helvetica','bold');
   doc.setFontSize(10.5);
   doc.setTextColor(68,68,68);
@@ -2326,6 +2321,14 @@ function generarEtiquetaEnvio(id){
   doc.setFontSize(14);
   doc.setTextColor(23,26,25);
   doc.text(ciDest || '—', barW+54, y);
+
+  y += 9;
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(14);
+  doc.setTextColor(23,26,25);
+  const direccionAncho = W - margin - (barW+4);
+  const direccionLineas = doc.splitTextToSize(direccionDest || '—', direccionAncho).slice(0,2);
+  doc.text(direccionLineas, barW+4, y);
 
   // ---------- QR de WhatsApp, en el espacio vacío de la derecha ----------
   const qrSize = 25;
@@ -2396,8 +2399,14 @@ function descargarArchivoTexto(contenido, nombreArchivo, mime){
     document.body.removeChild(a);
     descargado = true;
   }catch(e){ /* seguimos al respaldo */ }
-  window.open(url, '_blank');
-  toast(descargado ? 'Datos exportados' : 'Se abrió el archivo — guardalo desde ahí');
+
+  if(descargado){
+    toast('Datos exportados como ' + nombreArchivo);
+  }else{
+    // sólo abrimos la pestaña de respaldo si la descarga automática no se pudo disparar
+    window.open(url, '_blank');
+    toast('Se abrió el archivo — guardalo desde ahí como ' + nombreArchivo);
+  }
   setTimeout(()=>URL.revokeObjectURL(url), 60000);
 }
 
