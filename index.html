@@ -263,6 +263,7 @@
         <select id="pMaterialSelect">
           <option value="">— Elegir material —</option>
           <option value="__custom__">✎ Venta única / artículo personalizado</option>
+          <option value="__estructura__">🏗️ Cartel con caño y lona (calculadora)</option>
         </select>
 
         <div id="pCantidadSimpleWrap">
@@ -309,6 +310,98 @@
               <input type="number" id="pVUPrecio" min="0" step="0.01" placeholder="0.00">
             </div>
           </div>
+        </div>
+
+        <div id="pEstructuraWrap" style="display:none;">
+          <div class="row">
+            <div>
+              <label>Ancho (m)</label>
+              <input type="number" id="eAncho" min="0" step="0.01" placeholder="0.00">
+            </div>
+            <div>
+              <label>Alto (m)</label>
+              <input type="number" id="eAlto" min="0" step="0.01" placeholder="0.00">
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label>Caño de estructura</label>
+              <select id="eCano">
+                <option value="20x20">20x20</option>
+                <option value="30x30">30x30</option>
+              </select>
+            </div>
+            <div>
+              <label>Tipo de lona</label>
+              <select id="eLona">
+                <option value="eco">Eco</option>
+                <option value="uv">UV</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="check-row" id="eLaminadoWrap">
+            <input type="checkbox" id="eLaminado">
+            <label for="eLaminado" style="margin:0;">Laminado UV líquido sobre la lona (rinde ~30 m²/litro, $1.500/litro)</label>
+          </div>
+
+          <label style="margin-top:14px;">Refuerzos de la estructura</label>
+          <div class="row">
+            <div>
+              <label style="margin-top:0;">Cantidad</label>
+              <input type="number" id="eRefCantidad" min="0" step="1" value="0">
+            </div>
+            <div>
+              <label style="margin-top:0;">Distancia entre sí (m)</label>
+              <input type="number" id="eRefDistancia" min="0" step="0.01" placeholder="0.00">
+            </div>
+          </div>
+          <div id="eRefAviso" class="sub" style="font-size:11px;margin-top:4px;"></div>
+
+          <div class="divider-dash"></div>
+
+          <div class="row">
+            <div>
+              <label>Horas de mano de obra extra</label>
+              <input type="number" id="eHorasExtra" min="0" step="0.5" value="0">
+            </div>
+            <div>
+              <label>% consumibles s/costo hierro</label>
+              <input type="number" id="ePctConsumibles" min="0" step="1" value="15">
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Horas de diseño</label>
+              <input type="number" id="eHorasDiseno" min="0" step="0.5" value="0">
+            </div>
+            <div>
+              <label>Valor hora de diseño</label>
+              <input type="number" id="eValorHoraDiseno" min="0" step="10" value="500">
+            </div>
+          </div>
+
+          <div class="check-row">
+            <input type="checkbox" id="eMargenCheck">
+            <label for="eMargenCheck" style="margin:0;">Agregar margen extra por concepto de...</label>
+          </div>
+          <div id="eMargenWrap" style="display:none;">
+            <div class="row">
+              <div>
+                <label>Concepto</label>
+                <input id="eMargenConcepto" placeholder="Ej: dificultad de instalación">
+              </div>
+              <div>
+                <label>Monto</label>
+                <input type="number" id="eMargenMonto" min="0" step="1" placeholder="0.00">
+              </div>
+            </div>
+          </div>
+
+          <div class="divider-dash"></div>
+          <div id="eResultado" class="totals-box"></div>
+          <button class="btn small vinyl" style="width:100%;margin-top:10px;" onclick="agregarItemEstructura()">+ Agregar cartel al presupuesto</button>
         </div>
 
         <button class="btn small vinyl" style="width:100%;margin-top:10px;" onclick="addItem()">+ Agregar ítem</button>
@@ -737,17 +830,20 @@ function renderMaterialSelect(){
   );
   sel.innerHTML = '<option value="">— Elegir material —</option>' +
     '<option value="__custom__">✎ Venta única / artículo personalizado</option>' +
+    '<option value="__estructura__">🏗️ Cartel con caño y lona (calculadora)</option>' +
     ordenados.map(m=>`<option value="${m.id}">${m.nombre} ($${precioVentaDe(m).toFixed(2)}/${unidadLabel[m.unidad]})</option>`).join('');
 }
 
 document.getElementById('pMaterialSelect').addEventListener('change', e=>{
   const esCustom = e.target.value === '__custom__';
+  const esEstructura = e.target.value === '__estructura__';
   const m = data.materiales.find(x=>x.id===e.target.value);
   document.getElementById('pCantidadLabel').textContent = m ? ('Cantidad ('+unidadLabel[m.unidad]+')') : 'Cantidad';
   const esM2 = m && m.unidad === 'm2';
   document.getElementById('pLargoAnchoWrap').style.display = esM2 ? 'block' : 'none';
-  document.getElementById('pCantidadSimpleWrap').style.display = (esM2 || esCustom) ? 'none' : 'block';
+  document.getElementById('pCantidadSimpleWrap').style.display = (esM2 || esCustom || esEstructura) ? 'none' : 'block';
   document.getElementById('pVentaUnicaWrap').style.display = esCustom ? 'block' : 'none';
+  document.getElementById('pEstructuraWrap').style.display = esEstructura ? 'block' : 'none';
   if(esM2){
     document.getElementById('pLargo').value = '';
     document.getElementById('pAncho').value = '';
@@ -760,6 +856,10 @@ document.getElementById('pMaterialSelect').addEventListener('change', e=>{
     document.getElementById('pVUCosto').value = '';
     document.getElementById('pVUPrecio').value = '';
   }
+  if(esEstructura){
+    asegurarMaterialesEstructura();
+    actualizarCalculoEstructura();
+  }
 });
 
 function actualizarM2Calculado(){
@@ -771,6 +871,187 @@ function actualizarM2Calculado(){
 document.getElementById('pLargo').addEventListener('input', actualizarM2Calculado);
 document.getElementById('pAncho').addEventListener('input', actualizarM2Calculado);
 document.getElementById('pM2Cantidad').addEventListener('input', actualizarM2Calculado);
+
+/* ---------- calculadora estructural: cartel con caño y lona ---------- */
+const MATERIALES_ESTRUCTURA_BASE = [
+  { nombre: 'Hierro 20x20', unidad: 'ml', costo: 85,  modo: 'fijo', precioVenta: 212.5 },
+  { nombre: 'Hierro 30x30', unidad: 'ml', costo: 122, modo: 'fijo', precioVenta: 305 },
+  { nombre: 'Lona Eco',     unidad: 'm2', costo: 390, modo: 'fijo', precioVenta: 1100 },
+  { nombre: 'Lona UV',      unidad: 'm2', costo: 500, modo: 'fijo', precioVenta: 1500 },
+];
+
+function buscarMaterialPorNombre(nombre){
+  const n = normalizarTexto(nombre);
+  return data.materiales.find(m=>normalizarTexto(m.nombre)===n);
+}
+
+function asegurarMaterialesEstructura(){
+  let agregados = false;
+  MATERIALES_ESTRUCTURA_BASE.forEach(base=>{
+    if(!buscarMaterialPorNombre(base.nombre)){
+      data.materiales.push({ id: Date.now().toString()+Math.random().toString(36).slice(2,6), ...base });
+      agregados = true;
+    }
+  });
+  if(agregados){
+    saveData();
+    renderMateriales();
+    renderMaterialSelect();
+    toast('Se agregaron a Materiales los precios base de caño y lona');
+  }
+}
+
+// regla de referencia: distancia sugerida entre refuerzos según la altura del cartel
+function distanciaReglaRefuerzos(altura){
+  if(altura<=0.80) return 1.5;
+  if(altura<=1.50) return 1.2;
+  return 1.0;
+}
+
+document.getElementById('eRefCantidad').addEventListener('input', e=>{
+  const ancho = parseFloat(document.getElementById('eAncho').value) || 0;
+  const cant = parseFloat(e.target.value) || 0;
+  if(ancho>0){
+    document.getElementById('eRefDistancia').value = (ancho/(cant+1)).toFixed(2);
+  }
+  actualizarCalculoEstructura();
+});
+document.getElementById('eRefDistancia').addEventListener('input', e=>{
+  const ancho = parseFloat(document.getElementById('eAncho').value) || 0;
+  const dist = parseFloat(e.target.value) || 0;
+  if(dist>0 && ancho>0){
+    document.getElementById('eRefCantidad').value = Math.max(0, Math.round(ancho/dist) - 1);
+  }
+  actualizarCalculoEstructura();
+});
+['eAncho','eAlto','eCano','eLona','eHorasExtra','ePctConsumibles','eHorasDiseno','eValorHoraDiseno','eLaminado']
+  .forEach(id=> document.getElementById(id).addEventListener('input', actualizarCalculoEstructura));
+document.getElementById('eLona').addEventListener('change', e=>{
+  document.getElementById('eLaminadoWrap').style.display = e.target.value==='eco' ? 'flex' : 'none';
+  actualizarCalculoEstructura();
+});
+document.getElementById('eMargenCheck').addEventListener('change', e=>{
+  document.getElementById('eMargenWrap').style.display = e.target.checked ? 'block' : 'none';
+  actualizarCalculoEstructura();
+});
+document.getElementById('eMargenMonto').addEventListener('input', actualizarCalculoEstructura);
+
+function calcularEstructura(){
+  const ancho = parseFloat(document.getElementById('eAncho').value) || 0;
+  const alto = parseFloat(document.getElementById('eAlto').value) || 0;
+  const tipoCano = document.getElementById('eCano').value;
+  const tipoLona = document.getElementById('eLona').value;
+  const refCantidad = parseFloat(document.getElementById('eRefCantidad').value) || 0;
+  const laminado = document.getElementById('eLaminado').checked;
+  const horasExtra = parseFloat(document.getElementById('eHorasExtra').value) || 0;
+  const pctConsumibles = parseFloat(document.getElementById('ePctConsumibles').value) || 0;
+  const horasDiseno = parseFloat(document.getElementById('eHorasDiseno').value) || 0;
+  const valorHoraDiseno = parseFloat(document.getElementById('eValorHoraDiseno').value) || 0;
+  const margenActivo = document.getElementById('eMargenCheck').checked;
+  const margenConcepto = document.getElementById('eMargenConcepto').value.trim();
+  const margenMonto = margenActivo ? (parseFloat(document.getElementById('eMargenMonto').value) || 0) : 0;
+
+  const matCano = buscarMaterialPorNombre(tipoCano==='30x30' ? 'Hierro 30x30' : 'Hierro 20x20');
+  const matLona = buscarMaterialPorNombre(tipoLona==='uv' ? 'Lona UV' : 'Lona Eco');
+
+  const metrosCano = 2*(ancho+alto) + refCantidad*alto;
+  const areaLona = ancho*alto;
+
+  const costoCano = matCano ? metrosCano*matCano.costo : 0;
+  const ventaCano = matCano ? metrosCano*precioVentaDe(matCano) : 0;
+  const costoLona = matLona ? areaLona*matLona.costo : 0;
+  const ventaLona = matLona ? areaLona*precioVentaDe(matLona) : 0;
+
+  const costoConsumibles = costoCano * (pctConsumibles/100);
+  const ventaConsumibles = costoConsumibles; // recupero de costo, sin margen extra
+
+  const litrosLaminado = laminado ? Math.ceil(areaLona/30) : 0;
+  const costoLaminado = litrosLaminado*1500;
+  const ventaLaminado = costoLaminado; // pasa igual, sin margen (ajustable con el margen extra)
+
+  const manoObraExtra = horasExtra*500;
+  const diseno = horasDiseno*valorHoraDiseno;
+
+  const costoTotal = costoCano + costoLona + costoConsumibles + costoLaminado;
+  const ventaTotal = ventaCano + ventaLona + ventaConsumibles + ventaLaminado + manoObraExtra + diseno + margenMonto;
+
+  const calibreTxt = tipoCano==='30x30' ? '30x30' : '20x20';
+  const lonaTxt = tipoLona==='uv' ? 'UV' : 'Eco';
+  const descripcion = `Cartel de ${ancho.toFixed(2)}m x ${alto.toFixed(2)}m, con lona ${lonaTxt} y estructura de hierro en caño ${calibreTxt}` +
+    (margenConcepto ? ` — ${margenConcepto}` : '');
+
+  return {
+    ancho, alto, metrosCano, areaLona, matCano, matLona,
+    costoCano, ventaCano, costoLona, ventaLona,
+    costoConsumibles, ventaConsumibles, litrosLaminado, costoLaminado, ventaLaminado,
+    manoObraExtra, diseno, margenMonto,
+    costoTotal, ventaTotal, descripcion
+  };
+}
+
+function actualizarCalculoEstructura(){
+  const alto = parseFloat(document.getElementById('eAlto').value) || 0;
+  const distActual = parseFloat(document.getElementById('eRefDistancia').value) || 0;
+  const reglaSugerida = distanciaReglaRefuerzos(alto);
+  const avisoEl = document.getElementById('eRefAviso');
+  const inputDist = document.getElementById('eRefDistancia');
+  if(alto>0 && distActual>0 && Math.abs(distActual-reglaSugerida) > 0.05){
+    avisoEl.textContent = '⚠️ Para ' + alto.toFixed(2) + 'm de alto, la referencia sugiere ~' + reglaSugerida.toFixed(2) + 'm entre refuerzos.';
+    avisoEl.style.color = '#c0722a';
+    inputDist.style.borderColor = '#c0722a';
+    inputDist.style.background = '#fdf3ea';
+  }else{
+    avisoEl.textContent = '';
+    inputDist.style.borderColor = '';
+    inputDist.style.background = '';
+  }
+
+  const r = calcularEstructura();
+  document.getElementById('eResultado').innerHTML = `
+    <div class="trow"><span>Metros de caño</span><span>${r.metrosCano.toFixed(2)} ml</span></div>
+    <div class="trow"><span>Área de lona</span><span>${r.areaLona.toFixed(2)} m²</span></div>
+    <div class="trow"><span>Estructura (caño)</span><span>$${r.ventaCano.toFixed(2)}</span></div>
+    <div class="trow"><span>Lona</span><span>$${r.ventaLona.toFixed(2)}</span></div>
+    <div class="trow"><span>Consumibles</span><span>$${r.ventaConsumibles.toFixed(2)}</span></div>
+    ${r.litrosLaminado>0 ? `<div class="trow"><span>Laminado UV (${r.litrosLaminado} L)</span><span>$${r.ventaLaminado.toFixed(2)}</span></div>` : ''}
+    ${r.manoObraExtra>0 ? `<div class="trow"><span>Mano de obra extra</span><span>$${r.manoObraExtra.toFixed(2)}</span></div>` : ''}
+    ${r.diseno>0 ? `<div class="trow"><span>Diseño gráfico</span><span>$${r.diseno.toFixed(2)}</span></div>` : ''}
+    ${r.margenMonto>0 ? `<div class="trow"><span>Margen extra</span><span>$${r.margenMonto.toFixed(2)}</span></div>` : ''}
+    <div class="trow total"><span>TOTAL</span><span>$${r.ventaTotal.toFixed(2)}</span></div>
+    <div class="trow profit"><span>Ganancia estimada</span><span>$${(r.ventaTotal-r.costoTotal).toFixed(2)}</span></div>
+  `;
+}
+
+function agregarItemEstructura(){
+  const r = calcularEstructura();
+  if(r.ancho<=0 || r.alto<=0){ toast('Ingresá ancho y alto del cartel'); return; }
+  if(!r.matCano || !r.matLona){ toast('Faltan los materiales base de caño/lona — probá elegir de nuevo esta opción'); return; }
+
+  presupuestoItems.push({
+    nombre: r.descripcion,
+    unidad: 'unidad',
+    cantidad: 1,
+    precioUnit: r.ventaTotal,
+    costoUnit: r.costoTotal,
+    subtotal: r.ventaTotal,
+    costoSubtotal: r.costoTotal,
+    medidaTxt: ''
+  });
+
+  // reset del formulario de la calculadora
+  ['eAncho','eAlto','eRefCantidad','eRefDistancia','eHorasExtra','eHorasDiseno','eMargenConcepto','eMargenMonto']
+    .forEach(id=> document.getElementById(id).value = (id==='eHorasDiseno'||id==='eHorasExtra'||id==='eRefCantidad') ? 0 : '');
+  document.getElementById('ePctConsumibles').value = 15;
+  document.getElementById('eValorHoraDiseno').value = 500;
+  document.getElementById('eLaminado').checked = false;
+  document.getElementById('eMargenCheck').checked = false;
+  document.getElementById('eMargenWrap').style.display = 'none';
+  document.getElementById('eRefAviso').textContent = '';
+  actualizarCalculoEstructura();
+
+  renderItems();
+  toast('Cartel agregado al presupuesto');
+}
 
 /* ---------- clientes ---------- */
 let editandoClienteId = null;

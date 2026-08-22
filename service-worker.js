@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fxcalcos-cache-v15';
+const CACHE_NAME = 'fxcalcos-cache-v16';
 
 // Archivos propios de la app: se guardan en caché apenas se instala
 const ARCHIVOS_PROPIOS = [
